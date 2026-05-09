@@ -5,14 +5,18 @@ import { useRouter } from "next/navigation";
 import RoofingMeasurements, { type RoofingData } from "@/components/measurements/RoofingMeasurements";
 import SidingMeasurements, { type SidingData } from "@/components/measurements/SidingMeasurements";
 import InteriorMeasurements, { type InteriorData } from "@/components/measurements/InteriorMeasurements";
-import PlumbingElectricalMeasurements, {
-  type PlumbingElectricalData,
-} from "@/components/measurements/PlumbingElectricalMeasurements";
+import PlumbingElectricalMeasurements, { type PlumbingElectricalData } from "@/components/measurements/PlumbingElectricalMeasurements";
+import PaintingMeasurements, { type PaintingData } from "@/components/measurements/PaintingMeasurements";
+import DemoMeasurements, { type DemoData } from "@/components/measurements/DemoMeasurements";
+import GeneralLaborMeasurements, { type GeneralLaborData } from "@/components/measurements/GeneralLaborMeasurements";
+import KitchenMeasurements, { type KitchenData } from "@/components/measurements/KitchenMeasurements";
+import DeckMeasurements, { type DeckData } from "@/components/measurements/DeckMeasurements";
+import GutterMeasurements, { type GutterData } from "@/components/measurements/GutterMeasurements";
 
 type MeasurementRecord = {
   id: string;
   tradeType: string;
-  data: Record<string, number | string>;
+  data: Record<string, unknown>;
 };
 
 interface Props {
@@ -21,70 +25,89 @@ interface Props {
   savedMeasurements: MeasurementRecord[];
 }
 
-// Trades that have a supported measurement form
-const SUPPORTED_TRADES = ["roofing", "siding", "interior", "plumbing/electrical", "plumbing", "electrical"];
-
-function isSupportedTrade(scope: string): boolean {
-  return SUPPORTED_TRADES.some((t) => scope.toLowerCase().includes(t) || t.includes(scope.toLowerCase()));
-}
-
 function normalizeTrade(scope: string): string {
   const s = scope.toLowerCase();
   if (s.includes("roof")) return "Roofing";
   if (s.includes("sid")) return "Siding";
   if (s.includes("interior")) return "Interior";
   if (s.includes("plumb") || s.includes("electric")) return "Plumbing/Electrical";
+  if (s.includes("demo") || s.includes("demolition")) return "Demo";
+  if (s.includes("paint")) return "Painting";
+  if (s.includes("kitchen")) return "Kitchen";
+  if (s.includes("general labor") || s === "labor") return "General Labor";
+  if (s.includes("deck") || s.includes("decking") || s.includes("framing")) return "Deck";
+  if (s.includes("gutter")) return "Gutters";
+  if (s.includes("window") || s.includes("door")) return "Windows/Doors";
   return scope;
+}
+
+function savedAs<T>(savedMeasurements: MeasurementRecord[], tradeType: string): T | undefined {
+  const found = savedMeasurements.find((m) => m.tradeType === tradeType);
+  return found?.data as T | undefined;
 }
 
 export default function MeasurementsClient({ estimateId, scopes, savedMeasurements }: Props) {
   const router = useRouter();
 
-  // Determine which scopes have supported forms
-  const supportedScopes = scopes.filter(isSupportedTrade);
-  const normalizedTabs = [...new Set(supportedScopes.map(normalizeTrade))];
-
+  const normalizedTabs = [...new Set(scopes.map(normalizeTrade))];
   const [activeTab, setActiveTab] = useState<string>(normalizedTabs[0] ?? "");
 
   // Form state per trade
-  const [roofingData, setRoofingData] = useState<RoofingData>(() => {
-    const saved = savedMeasurements.find((m) => m.tradeType === "Roofing");
-    return (saved?.data as RoofingData) ?? ({} as RoofingData);
-  });
-  const [sidingData, setSidingData] = useState<SidingData>(() => {
-    const saved = savedMeasurements.find((m) => m.tradeType === "Siding");
-    return (saved?.data as SidingData) ?? ({} as SidingData);
-  });
-  const [interiorData, setInteriorData] = useState<InteriorData>(() => {
-    const saved = savedMeasurements.find((m) => m.tradeType === "Interior");
-    return (saved?.data as InteriorData) ?? ({} as InteriorData);
-  });
-  const [peData, setPeData] = useState<PlumbingElectricalData>(() => {
-    const saved = savedMeasurements.find((m) => m.tradeType === "Plumbing/Electrical");
-    return (saved?.data as PlumbingElectricalData) ?? ({} as PlumbingElectricalData);
-  });
+  const [roofingData, setRoofingData] = useState<RoofingData>(
+    () => savedAs<RoofingData>(savedMeasurements, "Roofing") ?? {} as RoofingData
+  );
+  const [sidingData, setSidingData] = useState<SidingData>(
+    () => savedAs<SidingData>(savedMeasurements, "Siding") ?? {} as SidingData
+  );
+  const [interiorData, setInteriorData] = useState<InteriorData>(
+    () => savedAs<InteriorData>(savedMeasurements, "Interior") ?? {} as InteriorData
+  );
+  const [peData, setPeData] = useState<PlumbingElectricalData>(
+    () => savedAs<PlumbingElectricalData>(savedMeasurements, "Plumbing/Electrical") ?? {} as PlumbingElectricalData
+  );
+  const [paintingData, setPaintingData] = useState<PaintingData>(
+    () => savedAs<PaintingData>(savedMeasurements, "Painting") ?? {} as PaintingData
+  );
+  const [demoData, setDemoData] = useState<DemoData>(
+    () => savedAs<DemoData>(savedMeasurements, "Demo") ?? {} as DemoData
+  );
+  const [laborData, setLaborData] = useState<GeneralLaborData>(
+    () => savedAs<GeneralLaborData>(savedMeasurements, "General Labor") ?? {} as GeneralLaborData
+  );
+  const [kitchenData, setKitchenData] = useState<KitchenData>(
+    () => savedAs<KitchenData>(savedMeasurements, "Kitchen") ?? {} as KitchenData
+  );
+  const [deckData, setDeckData] = useState<DeckData>(
+    () => savedAs<DeckData>(savedMeasurements, "Deck") ?? {} as DeckData
+  );
+  const [gutterData, setGutterData] = useState<GutterData>(
+    () => savedAs<GutterData>(savedMeasurements, "Gutters") ?? {} as GutterData
+  );
 
-  const [applying, setApplying] = useState<string | null>(null); // tab currently being applied
+  const [applying, setApplying] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  type PlumbingElectricalData = {
-    outlets: number;
-    switches: number;
-    fixtures: number;
-    roughInPlumbing: number;
-    plumbingFixtures: number;
-  };
+  function getDataForTrade(tradeType: string): Record<string, unknown> {
+    switch (tradeType) {
+      case "Roofing": return roofingData as unknown as Record<string, unknown>;
+      case "Siding": return sidingData as unknown as Record<string, unknown>;
+      case "Interior": return interiorData as unknown as Record<string, unknown>;
+      case "Plumbing/Electrical": return peData as unknown as Record<string, unknown>;
+      case "Painting": return paintingData as unknown as Record<string, unknown>;
+      case "Demo": return demoData as unknown as Record<string, unknown>;
+      case "General Labor": return laborData as unknown as Record<string, unknown>;
+      case "Kitchen": return kitchenData as unknown as Record<string, unknown>;
+      case "Deck": return deckData as unknown as Record<string, unknown>;
+      case "Gutters": return gutterData as unknown as Record<string, unknown>;
+      default: return {};
+    }
+  }
 
   async function applyAssembly(tradeType: string) {
     setApplying(tradeType);
     setErrors((prev) => ({ ...prev, [tradeType]: "" }));
-
-    let data: Record<string, number | string> = {};
-    if (tradeType === "Roofing") data = roofingData as unknown as Record<string, number | string>;
-    else if (tradeType === "Siding") data = sidingData as unknown as Record<string, number | string>;
-    else if (tradeType === "Interior") data = interiorData as unknown as Record<string, number | string>;
-    else if (tradeType === "Plumbing/Electrical") data = peData as unknown as Record<string, number | string>;
+    const data = getDataForTrade(tradeType);
 
     try {
       const res = await fetch(`/api/estimates/${estimateId}/measurements`, {
@@ -110,12 +133,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   }
 
   async function saveMeasurement(tradeType: string) {
-    let data: Record<string, number | string> = {};
-    if (tradeType === "Roofing") data = roofingData as unknown as Record<string, number | string>;
-    else if (tradeType === "Siding") data = sidingData as unknown as Record<string, number | string>;
-    else if (tradeType === "Interior") data = interiorData as unknown as Record<string, number | string>;
-    else if (tradeType === "Plumbing/Electrical") data = peData as unknown as Record<string, number | string>;
-
+    const data = getDataForTrade(tradeType);
     await fetch(`/api/estimates/${estimateId}/measurements`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,12 +148,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   if (normalizedTabs.length === 0) {
     return (
       <div className="bg-slate-800 border border-slate-700 rounded-xl px-8 py-16 text-center">
-        <p className="text-slate-400 text-sm mb-4">
-          No supported measurement forms for the selected scopes.
-        </p>
-        <p className="text-slate-500 text-xs mb-6">
-          Supported trades: Roofing, Siding, Interior, Plumbing, Electrical
-        </p>
+        <p className="text-slate-400 text-sm mb-4">No scopes found for this estimate.</p>
         <button
           onClick={handleDone}
           className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors"
@@ -171,28 +184,39 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       {/* Form content */}
       <div>
         {activeTab === "Roofing" && (
-          <RoofingMeasurements
-            initialData={roofingData}
-            onChange={(d) => { setRoofingData(d); }}
-          />
+          <RoofingMeasurements initialData={roofingData} onChange={setRoofingData} />
         )}
         {activeTab === "Siding" && (
-          <SidingMeasurements
-            initialData={sidingData}
-            onChange={(d) => { setSidingData(d); }}
-          />
+          <SidingMeasurements initialData={sidingData} onChange={setSidingData} />
         )}
         {activeTab === "Interior" && (
-          <InteriorMeasurements
-            initialData={interiorData}
-            onChange={(d) => { setInteriorData(d); }}
-          />
+          <InteriorMeasurements initialData={interiorData} onChange={setInteriorData} />
         )}
         {activeTab === "Plumbing/Electrical" && (
-          <PlumbingElectricalMeasurements
-            initialData={peData}
-            onChange={(d) => { setPeData(d as PlumbingElectricalData); }}
-          />
+          <PlumbingElectricalMeasurements initialData={peData} onChange={setPeData} />
+        )}
+        {activeTab === "Painting" && (
+          <PaintingMeasurements initialData={paintingData} onChange={setPaintingData} />
+        )}
+        {activeTab === "Demo" && (
+          <DemoMeasurements initialData={demoData} onChange={setDemoData} />
+        )}
+        {activeTab === "General Labor" && (
+          <GeneralLaborMeasurements initialData={laborData} onChange={setLaborData} />
+        )}
+        {activeTab === "Kitchen" && (
+          <KitchenMeasurements initialData={kitchenData} onChange={setKitchenData} />
+        )}
+        {activeTab === "Deck" && (
+          <DeckMeasurements initialData={deckData} onChange={setDeckData} />
+        )}
+        {activeTab === "Gutters" && (
+          <GutterMeasurements initialData={gutterData} onChange={setGutterData} />
+        )}
+        {activeTab === "Windows/Doors" && (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl px-8 py-12 text-center">
+            <p className="text-slate-400 text-sm">Windows/Doors measurements are entered as counts in the Interior or Siding forms.</p>
+          </div>
         )}
       </div>
 

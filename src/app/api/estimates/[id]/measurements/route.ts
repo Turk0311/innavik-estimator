@@ -7,8 +7,15 @@ import {
   calculateSidingAssembly,
   calculateInteriorAssembly,
   calculatePlumbingElectricalAssembly,
+  calculatePaintingAssembly,
+  calculateDemoAssembly,
+  calculateGeneralLaborAssembly,
+  calculateKitchenAssembly,
+  calculateDeckAssembly,
+  calculateGutterAssembly,
   type MeasurementData,
 } from "@/lib/assemblyEngine";
+import { Prisma } from "@/generated/prisma";
 import { Tier } from "@/generated/prisma";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -59,7 +66,7 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "tradeType and data are required" }, { status: 400 });
   }
 
-  // Upsert measurement (one per trade per estimate) — find first, then update or create
+  // Upsert measurement (one per trade per estimate)
   const existing = await prisma.measurement.findFirst({
     where: { estimateId, tradeType },
   });
@@ -67,15 +74,14 @@ export async function POST(request: Request, context: RouteContext) {
   const measurement = existing
     ? await prisma.measurement.update({
         where: { id: existing.id },
-        data: { data: measurementData },
+        data: { data: measurementData as Prisma.InputJsonValue },
       })
     : await prisma.measurement.create({
-        data: { estimateId, tradeType, data: measurementData },
+        data: { estimateId, tradeType, data: measurementData as Prisma.InputJsonValue },
       });
 
   // If applyAssembly flag set, calculate and insert line items
   if (applyAssembly) {
-    // Fetch products from DB for matching
     const products = await prisma.product.findMany({
       where: { active: true },
       select: { id: true, name: true, cost: true, unit: true, category: true, subCategory: true, tier: true },
@@ -90,12 +96,23 @@ export async function POST(request: Request, context: RouteContext) {
       assemblyItems = calculateSidingAssembly(measurementData, products);
     } else if (trade === "interior") {
       assemblyItems = calculateInteriorAssembly(measurementData, products);
-    } else if (trade === "plumbing" || trade === "electrical" || trade === "plumbing/electrical") {
+    } else if (trade === "plumbing/electrical" || trade === "plumbing" || trade === "electrical") {
       assemblyItems = calculatePlumbingElectricalAssembly(measurementData, products);
+    } else if (trade === "painting") {
+      assemblyItems = calculatePaintingAssembly(measurementData, products);
+    } else if (trade === "demo") {
+      assemblyItems = calculateDemoAssembly(measurementData, products);
+    } else if (trade === "general labor") {
+      assemblyItems = calculateGeneralLaborAssembly(measurementData, products);
+    } else if (trade === "kitchen") {
+      assemblyItems = calculateKitchenAssembly(measurementData, products);
+    } else if (trade === "deck") {
+      assemblyItems = calculateDeckAssembly(measurementData, products);
+    } else if (trade === "gutters") {
+      assemblyItems = calculateGutterAssembly(measurementData, products);
     }
 
     if (assemblyItems.length > 0) {
-      // Delete existing items for this trade category before re-inserting
       const categories = [...new Set(assemblyItems.map((i) => i.category))];
       for (const cat of categories) {
         await prisma.estimateItem.deleteMany({ where: { estimateId, category: cat } });

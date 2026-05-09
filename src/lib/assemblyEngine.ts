@@ -1,7 +1,7 @@
 // Assembly calculation engine
 // Takes raw field measurements and returns a list of pre-calculated estimate items
 
-export type MeasurementData = Record<string, number | string>
+export type MeasurementData = Record<string, unknown>
 
 export type AssemblyItem = {
   description: string
@@ -70,6 +70,33 @@ const DEFAULT_COSTS = {
   plumbingFixture: 285,
   electricalLabor: 95,  // per hr
   plumbingLabor: 110,   // per hr
+  // Painting
+  paintMaterial: 35,    // per gallon
+  paintLabor: 0.75,     // per sqf
+  // Demo
+  demoLabor: 0.80,      // per sqf
+  dumpster: 450,        // flat
+  // Labor
+  generalLabor: 75,     // per hr
+  // Kitchen
+  upperCabinet: 180,    // per lf
+  lowerCabinet: 220,    // per lf
+  countertop: 95,       // per lf
+  backsplash: 8,        // per sqf
+  appliance: 120,       // install per ea
+  sinkInstall: 280,     // flat
+  kitchenLabor: 85,     // per hr
+  // Deck
+  deckBoards: 3.50,     // per sqf
+  deckLabor: 4.00,      // per sqf
+  railing: 28,          // per lf
+  stairs: 350,          // per section
+  // Gutter
+  gutter: 8,            // per lf
+  downspout: 45,        // per ea
+  gutterCorner: 12,     // per ea
+  gutterGuard: 4,       // per lf
+  gutterLabor: 3,       // per lf
 }
 
 const DEFAULT_MARKUP = 30
@@ -92,37 +119,53 @@ function ceil(n: number): number {
   return Math.ceil(n)
 }
 
+function num(v: unknown, fallback = 0): number {
+  const n = Number(v)
+  return isNaN(n) ? fallback : n
+}
+
 // ---------------------------------------------------------------------------
-// Roofing Assembly
+// Roofing Assembly — supports planes array (new) or legacy roofArea (old)
 // ---------------------------------------------------------------------------
 export function calculateRoofingAssembly(
   measurements: MeasurementData,
   products: Product[]
 ): AssemblyItem[] {
-  const sqf = Number(measurements.roofArea ?? 0)
-  const wastePct = Number(measurements.wasteFactor ?? 10)
+  let sqf = 0
+
+  // New multi-plane format
+  const planes = measurements.planes
+  if (Array.isArray(planes) && planes.length > 0) {
+    sqf = planes.reduce((sum: number, p: unknown) => {
+      const plane = p as { area?: unknown }
+      return sum + num(plane.area)
+    }, 0)
+  } else {
+    // Legacy single-value format
+    sqf = num(measurements.roofArea)
+  }
+
+  const wastePct = num(measurements.wasteFactor, 15)
   const pitch = String(measurements.pitch ?? 'up_to_6_12')
-  const layers = Number(measurements.layers ?? 1)
-  const ridgeLf = Number(measurements.ridge ?? 0)
-  const hipLf = Number(measurements.hip ?? 0)
-  const valleysLf = Number(measurements.valleys ?? 0)
-  const rakesLf = Number(measurements.rakes ?? 0)
-  const eavesLf = Number(measurements.eaves ?? 0)
-  const chimneys = Number(measurements.chimneys ?? 0)
-  const skylights = Number(measurements.skylights ?? 0)
-  const powerVents = Number(measurements.powerVents ?? 0)
+  const layers = num(measurements.layers, 1)
+  const ridgeLf = num(measurements.ridge)
+  const hipLf = num(measurements.hip)
+  const valleysLf = num(measurements.valleys)
+  const rakesLf = num(measurements.rakes)
+  const eavesLf = num(measurements.eaves)
+  const chimneys = num(measurements.chimneys)
+  const skylights = num(measurements.skylights)
+  const powerVents = num(measurements.powerVents)
 
   if (sqf <= 0) return []
 
-  // Calculate squares with waste
   const adjustedSqf = sqf * (1 + wastePct / 100)
   const squares = ceil(adjustedSqf / 100)
-
   const pitchMultiplier = PITCH_MULTIPLIERS[pitch] ?? 1.0
 
   const items: AssemblyItem[] = []
 
-  // 1. Tear-off (if layers > 1, they're tearing off extra layers)
+  // 1. Tear-off
   if (layers > 1) {
     const tearoffProduct = findProduct(products, 'tear', 'tearoff', 'removal')
     items.push({
@@ -153,29 +196,25 @@ export function calculateRoofingAssembly(
   })
 
   // 3. Underlayment — 1 roll per 10 squares
-  if (squares > 0) {
-    const underlayProduct = findProduct(products, 'underlayment', 'felt', 'synthetic')
-    const underlayRolls = ceil(squares / 10)
-    items.push({
-      description: 'Underlayment',
-      quantity: underlayRolls,
-      unit: 'roll',
-      cost: underlayProduct?.cost ?? DEFAULT_COSTS.underlayment,
-      markup: DEFAULT_MARKUP,
-      tier: 'GOOD',
-      category: 'Roofing',
-      isLabor: false,
-      productId: underlayProduct?.id,
-    })
-  }
+  const underlayProduct = findProduct(products, 'underlayment', 'felt', 'synthetic')
+  items.push({
+    description: 'Underlayment',
+    quantity: ceil(squares / 10),
+    unit: 'roll',
+    cost: underlayProduct?.cost ?? DEFAULT_COSTS.underlayment,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Roofing',
+    isLabor: false,
+    productId: underlayProduct?.id,
+  })
 
-  // 4. Starter strip — eaves lf / 120 (bundles)
+  // 4. Starter strip
   if (eavesLf > 0) {
     const starterProduct = findProduct(products, 'starter', 'starter strip')
-    const starterBundles = ceil(eavesLf / 120)
     items.push({
       description: 'Starter strip',
-      quantity: starterBundles,
+      quantity: ceil(eavesLf / 120),
       unit: 'bundle',
       cost: starterProduct?.cost ?? DEFAULT_COSTS.starterStrip,
       markup: DEFAULT_MARKUP,
@@ -186,13 +225,12 @@ export function calculateRoofingAssembly(
     })
   }
 
-  // 5. Ridge cap — (ridge lf + hip lf) / 22 (bundles)
+  // 5. Ridge cap
   if (ridgeLf + hipLf > 0) {
     const ridgeProduct = findProduct(products, 'ridge', 'ridge cap', 'hip')
-    const ridgeBundles = ceil((ridgeLf + hipLf) / 22)
     items.push({
       description: 'Ridge / hip cap',
-      quantity: ridgeBundles,
+      quantity: ceil((ridgeLf + hipLf) / 22),
       unit: 'bundle',
       cost: ridgeProduct?.cost ?? DEFAULT_COSTS.ridgeCap,
       markup: DEFAULT_MARKUP,
@@ -203,7 +241,7 @@ export function calculateRoofingAssembly(
     })
   }
 
-  // 6. Drip edge — (eaves + rakes) lf
+  // 6. Drip edge
   if (eavesLf + rakesLf > 0) {
     const dripProduct = findProduct(products, 'drip edge', 'drip')
     items.push({
@@ -219,13 +257,12 @@ export function calculateRoofingAssembly(
     })
   }
 
-  // 7. Ice & water shield — eaves × 2 / 66 (rolls)
+  // 7. Ice & water shield
   if (eavesLf > 0) {
     const iceWaterProduct = findProduct(products, 'ice', 'water', 'ice & water', 'ice and water')
-    const iceWaterRolls = ceil((eavesLf * 2) / 66)
     items.push({
       description: 'Ice & water shield',
-      quantity: iceWaterRolls,
+      quantity: ceil((eavesLf * 2) / 66),
       unit: 'roll',
       cost: iceWaterProduct?.cost ?? DEFAULT_COSTS.iceWater,
       markup: DEFAULT_MARKUP,
@@ -236,22 +273,19 @@ export function calculateRoofingAssembly(
     })
   }
 
-  // 8. Coil nails — squares / 22 (boxes)
-  if (squares > 0) {
-    const nailProduct = findProduct(products, 'coil nail', 'nail', 'nails')
-    const nailBoxes = ceil(squares / 22)
-    items.push({
-      description: 'Coil nails',
-      quantity: nailBoxes,
-      unit: 'box',
-      cost: nailProduct?.cost ?? DEFAULT_COSTS.coilNails,
-      markup: DEFAULT_MARKUP,
-      tier: 'GOOD',
-      category: 'Roofing',
-      isLabor: false,
-      productId: nailProduct?.id,
-    })
-  }
+  // 8. Coil nails
+  const nailProduct = findProduct(products, 'coil nail', 'nail', 'nails')
+  items.push({
+    description: 'Coil nails',
+    quantity: ceil(squares / 22),
+    unit: 'box',
+    cost: nailProduct?.cost ?? DEFAULT_COSTS.coilNails,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Roofing',
+    isLabor: false,
+    productId: nailProduct?.id,
+  })
 
   // 9. Valley flashing
   if (valleysLf > 0) {
@@ -335,25 +369,36 @@ export function calculateRoofingAssembly(
 }
 
 // ---------------------------------------------------------------------------
-// Siding Assembly
+// Siding Assembly — supports walls array (new) or legacy wallArea (old)
 // ---------------------------------------------------------------------------
 export function calculateSidingAssembly(
   measurements: MeasurementData,
   products: Product[]
 ): AssemblyItem[] {
-  const wallArea = Number(measurements.wallArea ?? 0)
-  const perimeter = Number(measurements.perimeter ?? 0)
-  const openingsCount = Number(measurements.openings ?? 0)
-  const insideCorners = Number(measurements.insideCorners ?? 0)
-  const outsideCorners = Number(measurements.outsideCorners ?? 0)
-  const soffitArea = Number(measurements.soffitArea ?? 0)
-  const fasciaLf = Number(measurements.fascia ?? 0)
-  const wastePct = Number(measurements.wasteFactor ?? 10)
+  let wallArea = 0
+
+  const walls = measurements.walls
+  if (Array.isArray(walls) && walls.length > 0) {
+    wallArea = walls.reduce((sum: number, w: unknown) => {
+      const wall = w as { width?: unknown; height?: unknown }
+      return sum + num(wall.width) * num(wall.height)
+    }, 0)
+  } else {
+    wallArea = num(measurements.wallArea)
+  }
+
+  const perimeter = num(measurements.perimeter)
+  const openingsCount = num(measurements.openings)
+  const insideCorners = num(measurements.insideCorners)
+  const outsideCorners = num(measurements.outsideCorners)
+  const soffitArea = num(measurements.soffitArea)
+  // Support both old 'fascia' and new 'fasciaLf'
+  const fasciaLf = num(measurements.fasciaLf ?? measurements.fascia)
+  const wastePct = num(measurements.wasteFactor, 10)
 
   if (wallArea <= 0) return []
 
   const adjustedWallArea = wallArea * (1 + wastePct / 100)
-  // Deduct openings (average 20 sqf per opening)
   const netWallArea = Math.max(adjustedWallArea - openingsCount * 20, adjustedWallArea * 0.5)
 
   const items: AssemblyItem[] = []
@@ -362,7 +407,7 @@ export function calculateSidingAssembly(
   const sidingProduct = findProduct(products, 'siding', 'vinyl siding', 'panel')
   items.push({
     description: 'Siding panels',
-    quantity: Math.ceil(netWallArea),
+    quantity: ceil(netWallArea),
     unit: 'sqf',
     cost: sidingProduct?.cost ?? DEFAULT_COSTS.siding,
     markup: DEFAULT_MARKUP,
@@ -425,7 +470,7 @@ export function calculateSidingAssembly(
     const soffitProduct = findProduct(products, 'soffit')
     items.push({
       description: 'Soffit',
-      quantity: Math.ceil(soffitArea),
+      quantity: ceil(soffitArea),
       unit: 'sqf',
       cost: soffitProduct?.cost ?? DEFAULT_COSTS.soffit,
       markup: DEFAULT_MARKUP,
@@ -456,7 +501,7 @@ export function calculateSidingAssembly(
   const laborProduct = findProduct(products, 'siding labor', 'install labor', 'labor')
   items.push({
     description: 'Siding installation labor',
-    quantity: Math.ceil(netWallArea),
+    quantity: ceil(netWallArea),
     unit: 'sqf',
     cost: laborProduct?.cost ?? DEFAULT_COSTS.sidingLabor,
     markup: DEFAULT_MARKUP,
@@ -470,36 +515,55 @@ export function calculateSidingAssembly(
 }
 
 // ---------------------------------------------------------------------------
-// Interior Assembly
+// Interior Assembly — supports rooms array (new) or legacy fields (old)
 // ---------------------------------------------------------------------------
 export function calculateInteriorAssembly(
   measurements: MeasurementData,
   products: Product[]
 ): AssemblyItem[] {
-  const roomLength = Number(measurements.roomLength ?? 0)
-  const roomWidth = Number(measurements.roomWidth ?? 0)
-  const ceilingHeight = Number(measurements.ceilingHeight ?? 8)
-  const windows = Number(measurements.windows ?? 0)
-  const doors = Number(measurements.doors ?? 0)
-  const wastePct = Number(measurements.wasteFactor ?? 10)
+  let totalNetWallArea = 0
+  let totalFloorArea = 0
+  const windows = num(measurements.windows)
+  const doors = num(measurements.doors)
+  const wastePct = num(measurements.wasteFactor, 10)
 
-  if (roomLength <= 0 || roomWidth <= 0) return []
+  const rooms = measurements.rooms
+  if (Array.isArray(rooms) && rooms.length > 0) {
+    for (const r of rooms) {
+      const room = r as { length?: unknown; width?: unknown; ceilingHeight?: unknown }
+      const length = num(room.length)
+      const width = num(room.width)
+      const ceilingHeight = num(room.ceilingHeight, 8)
+      if (length <= 0 || width <= 0) continue
+      const floorArea = length * width
+      const perimeter = 2 * (length + width)
+      const grossWall = perimeter * ceilingHeight
+      totalFloorArea += floorArea
+      totalNetWallArea += grossWall
+    }
+  } else {
+    // Legacy single-room format
+    const roomLength = num(measurements.roomLength)
+    const roomWidth = num(measurements.roomWidth)
+    const ceilingHeight = num(measurements.ceilingHeight, 8)
+    if (roomLength > 0 && roomWidth > 0) {
+      totalFloorArea = roomLength * roomWidth
+      totalNetWallArea = 2 * (roomLength + roomWidth) * ceilingHeight
+    }
+  }
 
-  const floorArea = roomLength * roomWidth
-  const perimeter = 2 * (roomLength + roomWidth)
-  const grossWallArea = perimeter * ceilingHeight
-  // Deduct openings: windows avg 15 sqf, doors avg 20 sqf
+  if (totalNetWallArea <= 0) return []
+
+  // Deduct openings
   const openingDeduction = windows * 15 + doors * 20
-  const netWallArea = Math.max(grossWallArea - openingDeduction, grossWallArea * 0.7)
-  const totalArea = netWallArea + floorArea  // walls + ceiling? ceiling separate
-  const ceilingArea = floorArea
-
+  const netWallArea = Math.max(totalNetWallArea - openingDeduction, totalNetWallArea * 0.7)
+  const ceilingArea = totalFloorArea
   const waste = 1 + wastePct / 100
 
   const items: AssemblyItem[] = []
 
-  // 1. Drywall — walls + ceiling
-  const drywallSqf = Math.ceil((netWallArea + ceilingArea) * waste)
+  // 1. Drywall
+  const drywallSqf = ceil((netWallArea + ceilingArea) * waste)
   const drywallProduct = findProduct(products, 'drywall', 'gypsum', 'gyp')
   items.push({
     description: 'Drywall',
@@ -530,7 +594,7 @@ export function calculateInteriorAssembly(
     })
   }
 
-  // 3. Mud / joint compound — 1 bucket per 200 sqf
+  // 3. Mud
   const mudBuckets = ceil(drywallSqf / 200)
   if (mudBuckets > 0) {
     const mudProduct = findProduct(products, 'mud', 'joint compound', 'compound')
@@ -547,15 +611,15 @@ export function calculateInteriorAssembly(
     })
   }
 
-  // 4. Paint — walls + ceiling, 1 gal per 350 sqf (2 coats)
-  const paintArea = (netWallArea + ceilingArea) * 2  // two coats
+  // 4. Paint — 2 coats, 1 gal per 350 sqf
+  const paintArea = (netWallArea + ceilingArea) * 2
   const paintGallons = ceil(paintArea / 350)
   const paintProduct = findProduct(products, 'paint', 'interior paint')
   items.push({
     description: 'Interior paint',
     quantity: paintGallons,
     unit: 'gal',
-    cost: paintProduct?.cost ?? DEFAULT_COSTS.paint * 350, // cost per gal estimate
+    cost: paintProduct?.cost ?? DEFAULT_COSTS.paint * 350,
     markup: DEFAULT_MARKUP,
     tier: 'GOOD',
     category: 'Interior',
@@ -563,11 +627,11 @@ export function calculateInteriorAssembly(
     productId: paintProduct?.id,
   })
 
-  // 5. Drywall / interior labor
+  // 5. Labor
   const laborProduct = findProduct(products, 'interior labor', 'drywall labor', 'labor')
   items.push({
     description: 'Interior drywall & paint labor',
-    quantity: Math.ceil(netWallArea),
+    quantity: ceil(netWallArea),
     unit: 'sqf',
     cost: laborProduct?.cost ?? DEFAULT_COSTS.interiorLabor,
     markup: DEFAULT_MARKUP,
@@ -587,15 +651,14 @@ export function calculatePlumbingElectricalAssembly(
   measurements: MeasurementData,
   products: Product[]
 ): AssemblyItem[] {
-  const outlets = Number(measurements.outlets ?? 0)
-  const switches = Number(measurements.switches ?? 0)
-  const fixtures = Number(measurements.fixtures ?? 0)
-  const roughInPlumbing = Number(measurements.roughInPlumbing ?? 0)
-  const plumbingFixtures = Number(measurements.plumbingFixtures ?? 0)
+  const outlets = num(measurements.outlets)
+  const switches = num(measurements.switches)
+  const fixtures = num(measurements.fixtures)
+  const roughInPlumbing = num(measurements.roughInPlumbing)
+  const plumbingFixtures = num(measurements.plumbingFixtures)
 
   const items: AssemblyItem[] = []
 
-  // Electrical materials
   if (outlets > 0) {
     const outletProduct = findProduct(products, 'outlet', 'receptacle')
     items.push({
@@ -641,13 +704,12 @@ export function calculatePlumbingElectricalAssembly(
     })
   }
 
-  // Electrical labor — estimate ~1.5 hrs per outlet/switch, 2 hrs per fixture
   const electricalHours = outlets * 1.5 + switches * 1.5 + fixtures * 2
   if (electricalHours > 0) {
     const elecLaborProduct = findProduct(products, 'electrical labor', 'electrician', 'labor')
     items.push({
       description: 'Electrical labor',
-      quantity: Math.ceil(electricalHours),
+      quantity: ceil(electricalHours),
       unit: 'hr',
       cost: elecLaborProduct?.cost ?? DEFAULT_COSTS.electricalLabor,
       markup: DEFAULT_MARKUP,
@@ -658,7 +720,6 @@ export function calculatePlumbingElectricalAssembly(
     })
   }
 
-  // Plumbing rough-in
   if (roughInPlumbing > 0) {
     const roughInProduct = findProduct(products, 'rough-in', 'plumbing rough', 'rough in')
     items.push({
@@ -674,7 +735,6 @@ export function calculatePlumbingElectricalAssembly(
     })
   }
 
-  // Plumbing fixtures
   if (plumbingFixtures > 0) {
     const plumbFixtureProduct = findProduct(products, 'plumbing fixture', 'fixture', 'faucet')
     items.push({
@@ -690,13 +750,12 @@ export function calculatePlumbingElectricalAssembly(
     })
   }
 
-  // Plumbing labor — 4 hrs per rough-in, 3 hrs per fixture
   const plumbingHours = roughInPlumbing * 4 + plumbingFixtures * 3
   if (plumbingHours > 0) {
     const plumbLaborProduct = findProduct(products, 'plumbing labor', 'plumber', 'labor')
     items.push({
       description: 'Plumbing labor',
-      quantity: Math.ceil(plumbingHours),
+      quantity: ceil(plumbingHours),
       unit: 'hr',
       cost: plumbLaborProduct?.cost ?? DEFAULT_COSTS.plumbingLabor,
       markup: DEFAULT_MARKUP,
@@ -706,6 +765,469 @@ export function calculatePlumbingElectricalAssembly(
       productId: plumbLaborProduct?.id,
     })
   }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// Painting Assembly
+// ---------------------------------------------------------------------------
+export function calculatePaintingAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const surfaces = measurements.surfaces
+  let totalSqf = 0
+
+  if (Array.isArray(surfaces) && surfaces.length > 0) {
+    totalSqf = surfaces.reduce((sum: number, s: unknown) => {
+      const surface = s as { length?: unknown; width?: unknown }
+      return sum + num(surface.length) * num(surface.width)
+    }, 0)
+  }
+
+  if (totalSqf <= 0) return []
+
+  const coats = num(measurements.coats, 2)
+  const wastePct = num(measurements.wasteFactor, 10)
+  const includesPrimer = Boolean(measurements.includesPrimer)
+  const includesTrim = Boolean(measurements.includesTrim)
+  const adjustedSqf = ceil(totalSqf * (1 + wastePct / 100))
+  const totalCoats = coats + (includesPrimer ? 1 : 0)
+  const paintGallons = ceil((adjustedSqf * totalCoats) / 350)
+
+  const items: AssemblyItem[] = []
+
+  const paintProduct = findProduct(products, 'paint', 'interior paint', 'exterior paint')
+  items.push({
+    description: `Paint (${coats} coat${coats > 1 ? 's' : ''}${includesPrimer ? ' + primer' : ''})`,
+    quantity: paintGallons,
+    unit: 'gal',
+    cost: paintProduct?.cost ?? DEFAULT_COSTS.paintMaterial,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Painting',
+    isLabor: false,
+    productId: paintProduct?.id,
+  })
+
+  const laborProduct = findProduct(products, 'paint labor', 'painting labor', 'labor')
+  items.push({
+    description: `Painting labor (${coats} coat${coats > 1 ? 's' : ''})`,
+    quantity: adjustedSqf,
+    unit: 'sqf',
+    cost: laborProduct?.cost ?? DEFAULT_COSTS.paintLabor * coats,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Painting',
+    isLabor: true,
+    productId: laborProduct?.id,
+  })
+
+  if (includesTrim) {
+    items.push({
+      description: 'Trim painting (labor)',
+      quantity: 1,
+      unit: 'ls',
+      cost: 350,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Painting',
+      isLabor: true,
+    })
+  }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// Demo Assembly
+// ---------------------------------------------------------------------------
+export function calculateDemoAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const areas = measurements.areas
+  let totalSqft = 0
+
+  if (Array.isArray(areas) && areas.length > 0) {
+    totalSqft = areas.reduce((sum: number, a: unknown) => {
+      const area = a as { sqft?: unknown }
+      return sum + num(area.sqft)
+    }, 0)
+  }
+
+  const dumpsterNeeded = Boolean(measurements.dumpsterNeeded)
+  const items: AssemblyItem[] = []
+
+  if (totalSqft > 0) {
+    const laborProduct = findProduct(products, 'demo', 'demolition', 'demo labor')
+    items.push({
+      description: 'Demolition labor',
+      quantity: totalSqft,
+      unit: 'sqf',
+      cost: laborProduct?.cost ?? DEFAULT_COSTS.demoLabor,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Demo',
+      isLabor: true,
+      productId: laborProduct?.id,
+    })
+  }
+
+  if (dumpsterNeeded) {
+    const dumpsterProduct = findProduct(products, 'dumpster', 'haul', 'disposal')
+    items.push({
+      description: 'Dumpster rental / haul-away',
+      quantity: 1,
+      unit: 'ea',
+      cost: dumpsterProduct?.cost ?? DEFAULT_COSTS.dumpster,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Demo',
+      isLabor: false,
+      productId: dumpsterProduct?.id,
+    })
+  }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// General Labor Assembly
+// ---------------------------------------------------------------------------
+export function calculateGeneralLaborAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const tasks = measurements.tasks
+  const items: AssemblyItem[] = []
+
+  if (!Array.isArray(tasks) || tasks.length === 0) return items
+
+  const laborProduct = findProduct(products, 'general labor', 'labor', 'hourly')
+
+  for (const t of tasks) {
+    const task = t as { label?: unknown; hours?: unknown }
+    const hours = num(task.hours)
+    if (hours <= 0) continue
+    const label = String(task.label || 'General labor')
+    items.push({
+      description: label,
+      quantity: hours,
+      unit: 'hr',
+      cost: laborProduct?.cost ?? DEFAULT_COSTS.generalLabor,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'General Labor',
+      isLabor: true,
+      productId: laborProduct?.id,
+    })
+  }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// Kitchen Assembly
+// ---------------------------------------------------------------------------
+export function calculateKitchenAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const upperCabinetsLf = num(measurements.upperCabinetsLf)
+  const lowerCabinetsLf = num(measurements.lowerCabinetsLf)
+  const countertopLf = num(measurements.countertopLf)
+  const backsplashSqft = num(measurements.backsplashSqft)
+  const appliances = num(measurements.appliances)
+  const sink = Boolean(measurements.sink)
+  const wastePct = num(measurements.wasteFactor, 10)
+  const waste = 1 + wastePct / 100
+
+  const items: AssemblyItem[] = []
+
+  if (upperCabinetsLf > 0) {
+    const product = findProduct(products, 'upper cabinet', 'cabinet', 'upper')
+    items.push({
+      description: 'Upper cabinets',
+      quantity: upperCabinetsLf,
+      unit: 'lf',
+      cost: product?.cost ?? DEFAULT_COSTS.upperCabinet,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: false,
+      productId: product?.id,
+    })
+  }
+
+  if (lowerCabinetsLf > 0) {
+    const product = findProduct(products, 'lower cabinet', 'base cabinet', 'lower')
+    items.push({
+      description: 'Lower / base cabinets',
+      quantity: lowerCabinetsLf,
+      unit: 'lf',
+      cost: product?.cost ?? DEFAULT_COSTS.lowerCabinet,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: false,
+      productId: product?.id,
+    })
+  }
+
+  if (countertopLf > 0) {
+    const product = findProduct(products, 'countertop', 'counter')
+    items.push({
+      description: 'Countertop',
+      quantity: ceil(countertopLf * waste),
+      unit: 'lf',
+      cost: product?.cost ?? DEFAULT_COSTS.countertop,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: false,
+      productId: product?.id,
+    })
+  }
+
+  if (backsplashSqft > 0) {
+    const product = findProduct(products, 'backsplash', 'tile')
+    items.push({
+      description: 'Backsplash tile',
+      quantity: ceil(backsplashSqft * waste),
+      unit: 'sqft',
+      cost: product?.cost ?? DEFAULT_COSTS.backsplash,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: false,
+      productId: product?.id,
+    })
+  }
+
+  if (appliances > 0) {
+    const product = findProduct(products, 'appliance', 'install')
+    items.push({
+      description: 'Appliance installation',
+      quantity: appliances,
+      unit: 'ea',
+      cost: product?.cost ?? DEFAULT_COSTS.appliance,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: true,
+      productId: product?.id,
+    })
+  }
+
+  if (sink) {
+    const product = findProduct(products, 'sink', 'kitchen sink')
+    items.push({
+      description: 'Sink installation',
+      quantity: 1,
+      unit: 'ea',
+      cost: product?.cost ?? DEFAULT_COSTS.sinkInstall,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: true,
+      productId: product?.id,
+    })
+  }
+
+  // Cabinet installation labor
+  const totalCabinetLf = upperCabinetsLf + lowerCabinetsLf
+  if (totalCabinetLf > 0) {
+    const laborProduct = findProduct(products, 'cabinet labor', 'kitchen labor', 'labor')
+    const hours = ceil(totalCabinetLf * 0.75) // ~45 min per lf
+    items.push({
+      description: 'Cabinet installation labor',
+      quantity: hours,
+      unit: 'hr',
+      cost: laborProduct?.cost ?? DEFAULT_COSTS.kitchenLabor,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Kitchen',
+      isLabor: true,
+      productId: laborProduct?.id,
+    })
+  }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// Deck Assembly
+// ---------------------------------------------------------------------------
+export function calculateDeckAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const sections = measurements.sections
+  let totalArea = 0
+
+  if (Array.isArray(sections) && sections.length > 0) {
+    totalArea = sections.reduce((sum: number, s: unknown) => {
+      const section = s as { length?: unknown; width?: unknown }
+      return sum + num(section.length) * num(section.width)
+    }, 0)
+  }
+
+  if (totalArea <= 0) return []
+
+  const wastePct = num(measurements.wasteFactor, 10)
+  const railingLf = num(measurements.railingLf)
+  const stairs = num(measurements.stairs)
+  const adjustedArea = ceil(totalArea * (1 + wastePct / 100))
+
+  const items: AssemblyItem[] = []
+
+  const deckProduct = findProduct(products, 'deck board', 'decking', 'composite')
+  items.push({
+    description: 'Deck boards',
+    quantity: adjustedArea,
+    unit: 'sqf',
+    cost: deckProduct?.cost ?? DEFAULT_COSTS.deckBoards,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Deck',
+    isLabor: false,
+    productId: deckProduct?.id,
+  })
+
+  const laborProduct = findProduct(products, 'deck labor', 'framing labor', 'labor')
+  items.push({
+    description: 'Deck installation labor',
+    quantity: adjustedArea,
+    unit: 'sqf',
+    cost: laborProduct?.cost ?? DEFAULT_COSTS.deckLabor,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Deck',
+    isLabor: true,
+    productId: laborProduct?.id,
+  })
+
+  if (railingLf > 0) {
+    const railProduct = findProduct(products, 'railing', 'rail')
+    items.push({
+      description: 'Deck railing',
+      quantity: railingLf,
+      unit: 'lf',
+      cost: railProduct?.cost ?? DEFAULT_COSTS.railing,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Deck',
+      isLabor: false,
+      productId: railProduct?.id,
+    })
+  }
+
+  if (stairs > 0) {
+    const stairProduct = findProduct(products, 'stair', 'stairs', 'steps')
+    items.push({
+      description: 'Stair sections',
+      quantity: stairs,
+      unit: 'ea',
+      cost: stairProduct?.cost ?? DEFAULT_COSTS.stairs,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Deck',
+      isLabor: false,
+      productId: stairProduct?.id,
+    })
+  }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// Gutter Assembly
+// ---------------------------------------------------------------------------
+export function calculateGutterAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const linearFt = num(measurements.linearFt)
+  const downspouts = num(measurements.downspouts)
+  const corners = num(measurements.corners)
+  const guards = Boolean(measurements.guards)
+
+  if (linearFt <= 0) return []
+
+  const items: AssemblyItem[] = []
+
+  const gutterProduct = findProduct(products, 'gutter', 'guttering')
+  items.push({
+    description: 'Gutters',
+    quantity: linearFt,
+    unit: 'lf',
+    cost: gutterProduct?.cost ?? DEFAULT_COSTS.gutter,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Gutters',
+    isLabor: false,
+    productId: gutterProduct?.id,
+  })
+
+  if (downspouts > 0) {
+    const downspoutProduct = findProduct(products, 'downspout')
+    items.push({
+      description: 'Downspouts',
+      quantity: downspouts,
+      unit: 'ea',
+      cost: downspoutProduct?.cost ?? DEFAULT_COSTS.downspout,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Gutters',
+      isLabor: false,
+      productId: downspoutProduct?.id,
+    })
+  }
+
+  if (corners > 0) {
+    const cornerProduct = findProduct(products, 'gutter corner', 'corner')
+    items.push({
+      description: 'Gutter corners',
+      quantity: corners,
+      unit: 'ea',
+      cost: cornerProduct?.cost ?? DEFAULT_COSTS.gutterCorner,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Gutters',
+      isLabor: false,
+      productId: cornerProduct?.id,
+    })
+  }
+
+  if (guards) {
+    const guardProduct = findProduct(products, 'gutter guard', 'leaf guard')
+    items.push({
+      description: 'Gutter guards',
+      quantity: linearFt,
+      unit: 'lf',
+      cost: guardProduct?.cost ?? DEFAULT_COSTS.gutterGuard,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Gutters',
+      isLabor: false,
+      productId: guardProduct?.id,
+    })
+  }
+
+  const laborProduct = findProduct(products, 'gutter labor', 'labor')
+  items.push({
+    description: 'Gutter installation labor',
+    quantity: linearFt,
+    unit: 'lf',
+    cost: laborProduct?.cost ?? DEFAULT_COSTS.gutterLabor,
+    markup: DEFAULT_MARKUP,
+    tier: 'GOOD',
+    category: 'Gutters',
+    isLabor: true,
+    productId: laborProduct?.id,
+  })
 
   return items
 }

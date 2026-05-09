@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(REP)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  estimates Estimate[]
+}
+
+enum Role {
+  ADMIN
+  REP
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  sku         String?
+  name        String
+  cost        Float
+  unit        String
+  category    String
+  subCategory String?
+  supplier    String?
+  tier        Tier     @default(GOOD)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+enum Tier {
+  GOOD
+  BETTER
+  BEST
+}
+
+model Assembly {
+  id          String   @id @default(cuid())
+  name        String
+  tradeType   String
+  description String?
+  items       AssemblyItem[]
+  createdAt   DateTime @default(now())
+}
+
+model AssemblyItem {
+  id         String   @id @default(cuid())
+  assembly   Assembly @relation(fields: [assemblyId], references: [id])
+  assemblyId String
+  productId  String
+  quantity   Float
+  unit       String
+}
+
+model Estimate {
+  id          String   @id @default(cuid())
+  name        String
+  clientName  String
+  address     String?
+  status      String   @default("draft")
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  items       EstimateItem[]
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EstimateItem {
+  id          String   @id @default(cuid())
+  estimate    Estimate @relation(fields: [estimateId], references: [id])
+  estimateId  String
+  productId   String
+  description String
+  quantity    Float
+  unit        String
+  cost        Float
+  markup      Float
+  tier        Tier
+  category    String
+  isLabor     Boolean  @default(false)
+}

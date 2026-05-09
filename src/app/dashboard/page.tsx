@@ -12,22 +12,30 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  const isAdmin = session.user.role === "ADMIN";
+
   const estimates = await prisma.estimate.findMany({
-    where: { userId: session.user.id },
+    where: isAdmin ? undefined : { userId: session.user.id },
     orderBy: { updatedAt: "desc" },
-    include: { _count: { select: { items: true } } },
+    include: {
+      _count: { select: { items: true } },
+      user: { select: { name: true } },
+    },
   });
 
-  const totalEstimates = estimates.length;
+  const totalEstimates = isAdmin ? estimates.length : estimates.filter((e) => e.userId === session.user.id).length;
   const openEstimates = estimates.filter(
-    (e) => e.status === "draft" || e.status === "sent"
+    (e) => e.status === "draft" || e.status === "pending_review"
   ).length;
-  const completedEstimates = estimates.filter(
-    (e) => e.status === "completed" || e.status === "won"
-  ).length;
+  const approvedEstimates = estimates.filter((e) => e.status === "approved").length;
+
+  const pendingReview = estimates.filter((e) => e.status === "pending_review");
 
   const statusLabel: Record<string, string> = {
     draft: "Draft",
+    pending_review: "Pending Review",
+    approved: "Approved",
+    rejected: "Rejected",
     sent: "Sent",
     completed: "Completed",
     won: "Won",
@@ -36,13 +44,14 @@ export default async function DashboardPage() {
 
   const statusColor: Record<string, string> = {
     draft: "bg-slate-700 text-slate-300",
+    pending_review: "bg-amber-900/60 text-amber-300",
+    approved: "bg-emerald-900 text-emerald-300",
+    rejected: "bg-red-900 text-red-300",
     sent: "bg-blue-900 text-blue-300",
     completed: "bg-emerald-900 text-emerald-300",
     won: "bg-green-900 text-green-300",
     lost: "bg-red-900 text-red-300",
   };
-
-  const isAdmin = session.user.role === "ADMIN";
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -127,16 +136,69 @@ export default async function DashboardPage() {
             <p className="text-3xl font-bold text-white mt-1">{totalEstimates}</p>
           </div>
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-            <p className="text-slate-400 text-sm font-medium">Open</p>
-            <p className="text-3xl font-bold text-blue-400 mt-1">{openEstimates}</p>
+            {isAdmin ? (
+              <>
+                <p className="text-slate-400 text-sm font-medium">Pending Review</p>
+                <p className="text-3xl font-bold text-amber-400 mt-1">{pendingReview.length}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-slate-400 text-sm font-medium">Open / In Progress</p>
+                <p className="text-3xl font-bold text-blue-400 mt-1">{openEstimates}</p>
+              </>
+            )}
           </div>
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-            <p className="text-slate-400 text-sm font-medium">Completed / Won</p>
+            <p className="text-slate-400 text-sm font-medium">Approved</p>
             <p className="text-3xl font-bold text-emerald-400 mt-1">
-              {completedEstimates}
+              {approvedEstimates}
             </p>
           </div>
         </div>
+
+        {/* Pending Review section — admin only */}
+        {isAdmin && pendingReview.length > 0 && (
+          <div className="bg-amber-900/10 border border-amber-700/40 rounded-xl overflow-hidden mb-6">
+            <div className="px-6 py-4 border-b border-amber-700/30 flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <h2 className="text-base font-semibold text-amber-300">Pending Review</h2>
+              <span className="ml-auto text-xs bg-amber-800/50 text-amber-300 px-2 py-0.5 rounded-full font-medium">
+                {pendingReview.length}
+              </span>
+            </div>
+            <div className="divide-y divide-amber-700/20">
+              {pendingReview.map((estimate) => (
+                <Link
+                  key={estimate.id}
+                  href={`/estimates/${estimate.id}`}
+                  className="flex items-center justify-between px-6 py-4 hover:bg-amber-900/10 transition-colors group"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white group-hover:text-amber-300 transition-colors truncate">
+                      {estimate.name}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs text-slate-400 truncate">{estimate.clientName}</p>
+                      <span className="text-slate-600 text-xs">·</span>
+                      <p className="text-xs text-slate-500">{estimate.user.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 ml-4 text-right">
+                    <span className="text-xs bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded-full">
+                      Pending Review
+                    </span>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {new Date(estimate.updatedAt).toLocaleDateString("en-CA", {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Estimates Table */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">

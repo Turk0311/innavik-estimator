@@ -1057,6 +1057,9 @@ interface EstimateBuilderProps {
 export default function EstimateBuilder({ estimate: initialEstimate }: EstimateBuilderProps) {
   const [items, setItems] = useState<EstimateItem[]>(initialEstimate.items);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>(initialEstimate.status);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const scopes = useMemo(() => extractScopes(initialEstimate.notes), [initialEstimate.notes]);
   const plainNotes = useMemo(() => extractPlainNotes(initialEstimate.notes), [initialEstimate.notes]);
@@ -1121,6 +1124,9 @@ export default function EstimateBuilder({ estimate: initialEstimate }: EstimateB
 
   const statusColor: Record<string, string> = {
     draft: "bg-slate-700 text-slate-300",
+    pending_review: "bg-amber-900/60 text-amber-300",
+    approved: "bg-emerald-900 text-emerald-300",
+    rejected: "bg-red-900 text-red-300",
     sent: "bg-blue-900 text-blue-300",
     completed: "bg-emerald-900 text-emerald-300",
     won: "bg-green-900 text-green-300",
@@ -1129,17 +1135,40 @@ export default function EstimateBuilder({ estimate: initialEstimate }: EstimateB
 
   const statusLabel: Record<string, string> = {
     draft: "Draft",
+    pending_review: "Pending Review",
+    approved: "Approved",
+    rejected: "Rejected",
     sent: "Sent",
     completed: "Completed",
     won: "Won",
     lost: "Lost",
   };
 
+  async function handleSubmitForReview() {
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch(`/api/estimates/${initialEstimate.id}/submit`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to submit");
+      }
+      setStatus("pending_review");
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 px-6 py-5">
         <div className="max-w-7xl mx-auto">
+          <div className="space-y-2">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-3 mb-1 flex-wrap">
@@ -1148,10 +1177,10 @@ export default function EstimateBuilder({ estimate: initialEstimate }: EstimateB
                 </h1>
                 <span
                   className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${
-                    statusColor[initialEstimate.status] ?? "bg-slate-700 text-slate-300"
+                    statusColor[status] ?? "bg-slate-700 text-slate-300"
                   }`}
                 >
-                  {statusLabel[initialEstimate.status] ?? initialEstimate.status}
+                  {statusLabel[status] ?? status}
                 </span>
               </div>
               <div className="flex items-center gap-3 text-sm text-slate-400 flex-wrap">
@@ -1168,17 +1197,65 @@ export default function EstimateBuilder({ estimate: initialEstimate }: EstimateB
               )}
             </div>
 
-            {/* Export placeholder */}
-            <button
-              type="button"
-              title="Export to PDF (coming soon)"
-              className="flex-shrink-0 inline-flex items-center gap-2 border border-slate-600 hover:border-slate-500 text-slate-400 hover:text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Export PDF
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Measurements link */}
+              <a
+                href={`/estimates/${initialEstimate.id}/measurements`}
+                className="inline-flex items-center gap-1.5 border border-slate-600 hover:border-slate-500 text-slate-400 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                title="Enter measurements to auto-populate"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <span className="hidden sm:inline">Measurements</span>
+              </a>
+
+              {/* Export PDF */}
+              <a
+                href={`/estimates/${initialEstimate.id}/print`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open print / PDF view"
+                className="inline-flex items-center gap-2 border border-slate-600 hover:border-slate-500 text-slate-400 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                <span className="hidden sm:inline">Export PDF</span>
+              </a>
+
+              {/* Submit for Review — only when draft */}
+              {status === "draft" && (
+                <button
+                  type="button"
+                  onClick={handleSubmitForReview}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-500 disabled:bg-amber-800 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+                >
+                  {submitting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Submit for Review
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+          </div>
+          {submitError && (
+            <p className="text-xs text-red-400">{submitError}</p>
+          )}
           </div>
         </div>
       </div>

@@ -66,7 +66,7 @@ export default function NewEstimatePage() {
       }
 
       const estimate = await res.json();
-      router.push(`/estimates/${estimate.id}`);
+      router.push(`/estimates/${estimate.id}/measurements`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setLoading(false);

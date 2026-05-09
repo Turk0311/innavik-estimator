@@ -828,6 +828,8 @@ function ItemRow({ item, onDelete }: ItemRowProps) {
 const SCOPES_WITH_TEMPLATES = new Set([
   "Wall Assembly",
   "Wall Accessories",
+  "Insulation",
+  "Insulation Accessories",
   // more added here as Turk reviews each sheet
 ]);
 

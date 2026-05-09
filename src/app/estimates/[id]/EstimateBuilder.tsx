@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +34,18 @@ export interface Estimate {
   items: EstimateItem[];
 }
 
+interface Product {
+  id: string;
+  sku: string | null;
+  name: string;
+  cost: number;
+  unit: string;
+  category: string;
+  subCategory: string | null;
+  supplier: string | null;
+  tier: Tier;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -48,12 +60,6 @@ const TIER_COLORS: Record<Tier, string> = {
   GOOD: "text-emerald-400 bg-emerald-900/30 border-emerald-700",
   BETTER: "text-blue-400 bg-blue-900/30 border-blue-700",
   BEST: "text-amber-400 bg-amber-900/30 border-amber-700",
-};
-
-const TIER_HEADER_COLORS: Record<Tier, string> = {
-  GOOD: "bg-emerald-900/20 border-emerald-800 text-emerald-300",
-  BETTER: "bg-blue-900/20 border-blue-800 text-blue-300",
-  BEST: "bg-amber-900/20 border-amber-800 text-amber-300",
 };
 
 const DEFAULT_MARKUP = 30;
@@ -88,8 +94,14 @@ function extractPlainNotes(notes: string | null): string {
     .trim();
 }
 
+// sell price formula: cost / (1 - markup/100)
+function sellPrice(cost: number, markup: number): number {
+  if (markup >= 100) return cost * 100;
+  return cost / (1 - markup / 100);
+}
+
 // ---------------------------------------------------------------------------
-// Add-item form
+// Manual Add Item Form (for custom items not in catalog)
 // ---------------------------------------------------------------------------
 
 interface AddItemFormProps {
@@ -97,9 +109,10 @@ interface AddItemFormProps {
   onAdd: (item: Omit<EstimateItem, "id" | "estimateId">) => Promise<void>;
   onClose: () => void;
   isLabor?: boolean;
+  onBack?: () => void;
 }
 
-function AddItemForm({ category, onAdd, onClose, isLabor = false }: AddItemFormProps) {
+function AddItemForm({ category, onAdd, onClose, isLabor = false, onBack }: AddItemFormProps) {
   const [description, setDescription] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [unit, setUnit] = useState(isLabor ? "hr" : "ea");
@@ -109,10 +122,10 @@ function AddItemForm({ category, onAdd, onClose, isLabor = false }: AddItemFormP
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const lineTotal =
-    parseCurrency(cost) *
-    parseFloat(quantity || "0") *
-    (1 + parseFloat(markup || "0") / 100);
+  const markupNum = parseFloat(markup || "0");
+  const costNum = parseCurrency(cost);
+  const sell = costNum > 0 ? sellPrice(costNum, markupNum) : 0;
+  const lineTotal = sell * parseFloat(quantity || "0");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -143,9 +156,23 @@ function AddItemForm({ category, onAdd, onClose, isLabor = false }: AddItemFormP
   return (
     <div className="bg-slate-900 border border-slate-600 rounded-xl p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-white">
-          {isLabor ? "Add Labor Line" : "Add Material Line"}
-        </h4>
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-slate-500 hover:text-slate-300 transition-colors"
+              title="Back to search"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <h4 className="text-sm font-semibold text-white">
+            {isLabor ? "Add Labor Line" : "Add Custom Item"}
+          </h4>
+        </div>
         <button
           type="button"
           onClick={onClose}
@@ -157,15 +184,11 @@ function AddItemForm({ category, onAdd, onClose, isLabor = false }: AddItemFormP
         </button>
       </div>
 
-      {error && (
-        <p className="text-red-400 text-xs">{error}</p>
-      )}
+      {error && <p className="text-red-400 text-xs">{error}</p>}
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">
-            Description
-          </label>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Description</label>
           <input
             type="text"
             value={description}
@@ -244,6 +267,13 @@ function AddItemForm({ category, onAdd, onClose, isLabor = false }: AddItemFormP
           </div>
         </div>
 
+        {sell > 0 && (
+          <div className="rounded-lg bg-slate-800/60 border border-slate-700 px-3 py-2 flex items-center justify-between text-xs">
+            <span className="text-slate-500">Sell price per unit</span>
+            <span className="text-white font-semibold tabular-nums">{fmt(sell)}</span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between pt-1">
           <span className="text-xs text-slate-500">
             Line total:{" "}
@@ -272,6 +302,465 @@ function AddItemForm({ category, onAdd, onClose, isLabor = false }: AddItemFormP
 }
 
 // ---------------------------------------------------------------------------
+// Confirm Add Panel (after selecting a product from search)
+// ---------------------------------------------------------------------------
+
+interface ConfirmAddPanelProps {
+  product: Product;
+  category: string;
+  isLabor: boolean;
+  onAdd: (item: Omit<EstimateItem, "id" | "estimateId">) => Promise<void>;
+  onBack: () => void;
+  onClose: () => void;
+}
+
+function ConfirmAddPanel({ product, category, isLabor, onAdd, onBack, onClose }: ConfirmAddPanelProps) {
+  const [quantity, setQuantity] = useState("1");
+  const [unit, setUnit] = useState(product.unit);
+  const [cost, setCost] = useState(String(product.cost));
+  const [markup, setMarkup] = useState(String(DEFAULT_MARKUP));
+  const [tier, setTier] = useState<Tier>(product.tier ?? "GOOD");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const markupNum = parseFloat(markup || "0");
+  const costNum = parseCurrency(cost);
+  const sell = costNum > 0 ? sellPrice(costNum, markupNum) : 0;
+  const lineTotal = sell * parseFloat(quantity || "0");
+
+  async function handleAdd() {
+    if (!quantity || parseFloat(quantity) <= 0) {
+      setError("Quantity must be greater than 0.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onAdd({
+        productId: product.id,
+        description: product.name,
+        quantity: parseFloat(quantity),
+        unit: unit.trim() || product.unit,
+        cost: costNum,
+        markup: markupNum,
+        tier,
+        category,
+        isLabor,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add item");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-700">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-slate-500 hover:text-slate-300 transition-colors"
+          title="Back to search"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h3 className="text-sm font-semibold text-white flex-1">Confirm Item</h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        {/* Product info card */}
+        <div className="rounded-lg bg-slate-800 border border-slate-700 px-4 py-3 space-y-1">
+          <p className="text-sm font-semibold text-white">{product.name}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            {product.sku && <span className="font-mono text-slate-400">{product.sku}</span>}
+            {product.sku && <span>·</span>}
+            <span>{product.category}</span>
+            {product.subCategory && <><span>›</span><span>{product.subCategory}</span></>}
+            {product.supplier && <><span>·</span><span className="text-slate-500">{product.supplier}</span></>}
+          </div>
+        </div>
+
+        {error && <p className="text-red-400 text-xs">{error}</p>}
+
+        {/* Qty + unit */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              {isLabor ? "Hours" : "Quantity"}
+            </label>
+            <input
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              min="0"
+              step="0.5"
+              autoFocus
+              className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Unit</label>
+            <input
+              type="text"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        {/* Cost */}
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">
+            Unit Cost ($)
+          </label>
+          <input
+            type="number"
+            value={cost}
+            onChange={(e) => setCost(e.target.value)}
+            min="0"
+            step="0.01"
+            className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+
+        {/* Markup + Tier */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Markup %</label>
+            <input
+              type="number"
+              value={markup}
+              onChange={(e) => setMarkup(e.target.value)}
+              min="0"
+              max="99"
+              step="1"
+              className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Tier</label>
+            <select
+              value={tier}
+              onChange={(e) => setTier(e.target.value as Tier)}
+              className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="GOOD">Good</option>
+              <option value="BETTER">Better</option>
+              <option value="BEST">Best</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Live pricing */}
+        <div className="rounded-lg bg-slate-800/60 border border-slate-700 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-500">Sell price / unit</span>
+            <span className="text-white font-semibold tabular-nums">{fmt(sell)}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs border-t border-slate-700 pt-2">
+            <span className="text-slate-400 font-medium">Line total</span>
+            <span className="text-white font-bold tabular-nums text-sm">{fmt(lineTotal)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-4 border-t border-slate-700 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={saving}
+          className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white font-semibold px-4 py-1.5 rounded-lg text-xs transition-colors"
+        >
+          {saving ? "Adding..." : "Add to Estimate"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Product Search Modal
+// ---------------------------------------------------------------------------
+
+interface ProductSearchModalProps {
+  category: string;
+  isLabor: boolean;
+  onAdd: (item: Omit<EstimateItem, "id" | "estimateId">) => Promise<void>;
+  onClose: () => void;
+}
+
+function ProductSearchModal({ category, isLabor, onAdd, onClose }: ProductSearchModalProps) {
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState(isLabor ? "Labor" : "");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [showManual, setShowManual] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Load all products on mount to populate category list
+  useEffect(() => {
+    async function loadInitial() {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (isLabor) params.set("category", "Labor");
+        const res = await fetch(`/api/products?${params}`);
+        if (res.ok) {
+          const data: Product[] = await res.json();
+          setProducts(data);
+          // Extract unique categories
+          const cats = Array.from(new Set(data.map((p) => p.category))).sort();
+          setCategories(cats);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadInitial();
+    // Focus search input
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  }, [isLabor]);
+
+  // Debounced search
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set("search", search);
+        if (categoryFilter) params.set("category", categoryFilter);
+        const res = await fetch(`/api/products?${params}`);
+        if (res.ok) {
+          const data: Product[] = await res.json();
+          setProducts(data);
+          if (!categoryFilter) {
+            const cats = Array.from(new Set(data.map((p) => p.category))).sort();
+            setCategories(cats);
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search, categoryFilter]);
+
+  async function handleAdd(item: Omit<EstimateItem, "id" | "estimateId">) {
+    await onAdd(item);
+    onClose();
+  }
+
+  // Keyboard: close on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (showManual) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg">
+          <div className="p-5">
+            <AddItemForm
+              category={category}
+              isLabor={isLabor}
+              onAdd={handleAdd}
+              onClose={onClose}
+              onBack={() => setShowManual(false)}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedProduct) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: "90vh" }}>
+          <ConfirmAddPanel
+            product={selectedProduct}
+            category={category}
+            isLabor={isLabor}
+            onAdd={handleAdd}
+            onBack={() => setSelectedProduct(null)}
+            onClose={onClose}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="relative bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg flex flex-col"
+        style={{ maxHeight: "90vh" }}
+      >
+        {/* Modal header */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-700">
+          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold text-white">
+              {isLabor ? "Add Labor" : "Add Material"}
+            </h2>
+            <p className="text-xs text-slate-500 truncate">Search the product catalog</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Search + filter */}
+        <div className="px-5 py-3 space-y-2 border-b border-slate-700">
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+            </svg>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or SKU..."
+              className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white placeholder-slate-500 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            {loading && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <svg className="w-4 h-4 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </div>
+            )}
+          </div>
+
+          {!isLabor && categories.length > 1 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Results list */}
+        <div className="flex-1 overflow-y-auto">
+          {products.length === 0 && !loading ? (
+            <div className="px-5 py-8 text-center">
+              <p className="text-sm text-slate-500">
+                {search ? `No products found for "${search}"` : "No products in catalog."}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-700/60">
+              {products.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => setSelectedProduct(product)}
+                  className="w-full text-left px-5 py-3.5 hover:bg-slate-800 transition-colors group"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white group-hover:text-blue-300 transition-colors truncate">
+                        {product.name}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        {product.sku && (
+                          <span className="text-xs font-mono text-slate-500">{product.sku}</span>
+                        )}
+                        {product.sku && <span className="text-slate-700 text-xs">·</span>}
+                        <span className="text-xs text-slate-500">{product.category}</span>
+                        {product.subCategory && (
+                          <>
+                            <span className="text-slate-700 text-xs">›</span>
+                            <span className="text-xs text-slate-500">{product.subCategory}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 text-right">
+                      <p className="text-sm font-semibold text-slate-200 tabular-nums">{fmt(product.cost)}</p>
+                      <p className="text-xs text-slate-500">/{product.unit}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer: enter manually */}
+        <div className="px-5 py-3 border-t border-slate-700">
+          <button
+            type="button"
+            onClick={() => setShowManual(true)}
+            className="w-full text-center text-xs text-slate-500 hover:text-slate-300 transition-colors py-1"
+          >
+            {isLabor ? "Enter custom labor item manually" : "Item not in catalog? Enter manually"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Item Row
 // ---------------------------------------------------------------------------
 
@@ -282,7 +771,8 @@ interface ItemRowProps {
 
 function ItemRow({ item, onDelete }: ItemRowProps) {
   const [deleting, setDeleting] = useState(false);
-  const sellPrice = item.cost * item.quantity * (1 + item.markup / 100);
+  const sell = sellPrice(item.cost, item.markup);
+  const lineTotal = sell * item.quantity;
 
   async function handleDelete() {
     setDeleting(true);
@@ -306,13 +796,13 @@ function ItemRow({ item, onDelete }: ItemRowProps) {
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white truncate">{item.description}</p>
         <p className="text-xs text-slate-500">
-          {item.quantity} {item.unit} @ {fmt(item.cost)} · {item.markup}% markup
+          {item.quantity} {item.unit} @ {fmt(item.cost)} cost · {item.markup}% markup → {fmt(sell)}/unit
         </p>
       </div>
 
       {/* Total */}
       <span className="text-sm font-semibold text-slate-200 flex-shrink-0 tabular-nums">
-        {fmt(sellPrice)}
+        {fmt(lineTotal)}
       </span>
 
       {/* Delete */}
@@ -342,95 +832,93 @@ interface TradeSectionProps {
 }
 
 function TradeSection({ trade, items, onAddItem, onDeleteItem }: TradeSectionProps) {
-  const [addingMaterial, setAddingMaterial] = useState(false);
-  const [addingLabor, setAddingLabor] = useState(false);
+  const [modal, setModal] = useState<"material" | "labor" | null>(null);
 
   const materialItems = items.filter((i) => !i.isLabor);
   const laborItems = items.filter((i) => i.isLabor);
 
   async function handleAdd(item: Omit<EstimateItem, "id" | "estimateId">) {
     await onAddItem(item);
-    setAddingMaterial(false);
-    setAddingLabor(false);
+    setModal(null);
   }
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-      {/* Section header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-700">
-        <h3 className="text-sm font-semibold text-white">{trade}</h3>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => { setAddingMaterial(true); setAddingLabor(false); }}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 px-2.5 py-1 rounded-lg transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Material
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAddingLabor(true); setAddingMaterial(false); }}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-500 px-2.5 py-1 rounded-lg transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Labor
-          </button>
-        </div>
-      </div>
-
-      <div className="px-5 py-3 space-y-0">
-        {/* Materials */}
-        {materialItems.length > 0 && (
-          <div>
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">
-              Materials
-            </p>
-            <div className="divide-y divide-slate-700/50">
-              {materialItems.map((item) => (
-                <ItemRow key={item.id} item={item} onDelete={onDeleteItem} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Labor */}
-        {laborItems.length > 0 && (
-          <div className={materialItems.length > 0 ? "mt-3 pt-3 border-t border-slate-700/50" : ""}>
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">
+    <>
+      <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+        {/* Section header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-700">
+          <h3 className="text-sm font-semibold text-white">{trade}</h3>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setModal("material")}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Material
+            </button>
+            <button
+              type="button"
+              onClick={() => setModal("labor")}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-500 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
               Labor
-            </p>
-            <div className="divide-y divide-slate-700/50">
-              {laborItems.map((item) => (
-                <ItemRow key={item.id} item={item} onDelete={onDeleteItem} />
-              ))}
-            </div>
+            </button>
           </div>
-        )}
+        </div>
 
-        {items.length === 0 && !addingMaterial && !addingLabor && (
-          <p className="text-xs text-slate-600 py-4 text-center">
-            No items yet — use the buttons above to add materials or labor.
-          </p>
-        )}
+        <div className="px-5 py-3 space-y-0">
+          {/* Materials */}
+          {materialItems.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">
+                Materials
+              </p>
+              <div className="divide-y divide-slate-700/50">
+                {materialItems.map((item) => (
+                  <ItemRow key={item.id} item={item} onDelete={onDeleteItem} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Labor */}
+          {laborItems.length > 0 && (
+            <div className={materialItems.length > 0 ? "mt-3 pt-3 border-t border-slate-700/50" : ""}>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">
+                Labor
+              </p>
+              <div className="divide-y divide-slate-700/50">
+                {laborItems.map((item) => (
+                  <ItemRow key={item.id} item={item} onDelete={onDeleteItem} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {items.length === 0 && (
+            <p className="text-xs text-slate-600 py-4 text-center">
+              No items yet — use the buttons above to add materials or labor.
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* Add forms */}
-      {(addingMaterial || addingLabor) && (
-        <div className="px-5 pb-5 pt-2">
-          <AddItemForm
-            category={trade}
-            isLabor={addingLabor}
-            onAdd={handleAdd}
-            onClose={() => { setAddingMaterial(false); setAddingLabor(false); }}
-          />
-        </div>
+      {/* Product search modal */}
+      {modal && (
+        <ProductSearchModal
+          category={trade}
+          isLabor={modal === "labor"}
+          onAdd={handleAdd}
+          onClose={() => setModal(null)}
+        />
       )}
-    </div>
+    </>
   );
 }
 
@@ -453,7 +941,7 @@ function SummaryPanel({ items }: SummaryPanelProps) {
     };
 
     for (const item of items) {
-      const sell = item.cost * item.quantity * (1 + item.markup / 100);
+      const sell = sellPrice(item.cost, item.markup) * item.quantity;
       if (item.isLabor) {
         result[item.tier].labor += sell;
       } else {

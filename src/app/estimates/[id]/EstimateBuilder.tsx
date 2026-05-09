@@ -824,22 +824,63 @@ function ItemRow({ item, onDelete }: ItemRowProps) {
 // Trade Section
 // ---------------------------------------------------------------------------
 
+// List of scopes that have a pre-built standard items template
+const SCOPES_WITH_TEMPLATES = new Set([
+  "Wall Assembly",
+  "Wall Accessories",
+  // more added here as Turk reviews each sheet
+]);
+
 interface TradeSectionProps {
   trade: string;
+  estimateId: string;
   items: EstimateItem[];
   onAddItem: (item: Omit<EstimateItem, "id" | "estimateId">) => Promise<void>;
   onDeleteItem: (id: string) => Promise<void>;
+  onItemsLoaded: (items: EstimateItem[]) => void;
 }
 
-function TradeSection({ trade, items, onAddItem, onDeleteItem }: TradeSectionProps) {
+function TradeSection({ trade, estimateId, items, onAddItem, onDeleteItem, onItemsLoaded }: TradeSectionProps) {
   const [modal, setModal] = useState<"material" | "labor" | null>(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [templateMsg, setTemplateMsg] = useState("");
 
   const materialItems = items.filter((i) => !i.isLabor);
   const laborItems = items.filter((i) => i.isLabor);
+  const hasTemplate = SCOPES_WITH_TEMPLATES.has(trade);
 
   async function handleAdd(item: Omit<EstimateItem, "id" | "estimateId">) {
     await onAddItem(item);
     setModal(null);
+  }
+
+  async function loadTemplate() {
+    setLoadingTemplate(true);
+    setTemplateMsg("");
+    try {
+      const res = await fetch(
+        `/api/estimates/${estimateId}/template?scope=${encodeURIComponent(trade)}`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load template");
+
+      // Refresh items by re-fetching the estimate
+      const estRes = await fetch(`/api/estimates/${estimateId}`);
+      if (estRes.ok) {
+        const est = await estRes.json();
+        onItemsLoaded(est.items ?? []);
+      }
+
+      const msg = data.notFound?.length > 0
+        ? `Added ${data.added} items. ${data.notFound.length} not found in catalog.`
+        : `Added ${data.added} standard items.`;
+      setTemplateMsg(msg);
+    } catch (err) {
+      setTemplateMsg(err instanceof Error ? err.message : "Error loading template");
+    } finally {
+      setLoadingTemplate(false);
+    }
   }
 
   return (
@@ -849,6 +890,27 @@ function TradeSection({ trade, items, onAddItem, onDeleteItem }: TradeSectionPro
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-700">
           <h3 className="text-sm font-semibold text-white">{trade}</h3>
           <div className="flex items-center gap-2">
+            {/* Load standard items — only shown when template exists and tab is empty */}
+            {hasTemplate && items.length === 0 && (
+              <button
+                type="button"
+                onClick={loadTemplate}
+                disabled={loadingTemplate}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 border border-emerald-800 hover:border-emerald-600 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {loadingTemplate ? (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                )}
+                Standard Items
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setModal("material")}
@@ -873,6 +935,11 @@ function TradeSection({ trade, items, onAddItem, onDeleteItem }: TradeSectionPro
         </div>
 
         <div className="px-5 py-3 space-y-0">
+          {/* Template feedback */}
+          {templateMsg && (
+            <p className="text-xs text-emerald-400 py-1 pb-2">{templateMsg}</p>
+          )}
+
           {/* Materials */}
           {materialItems.length > 0 && (
             <div>
@@ -901,9 +968,15 @@ function TradeSection({ trade, items, onAddItem, onDeleteItem }: TradeSectionPro
             </div>
           )}
 
-          {items.length === 0 && (
+          {items.length === 0 && !hasTemplate && (
             <p className="text-xs text-slate-600 py-4 text-center">
               No items yet — use the buttons above to add materials or labor.
+            </p>
+          )}
+
+          {items.length === 0 && hasTemplate && !templateMsg && (
+            <p className="text-xs text-slate-600 py-4 text-center">
+              Click <span className="text-emerald-600">Standard Items</span> to pre-load the catalog items for this scope, or add manually above.
             </p>
           )}
         </div>
@@ -1314,9 +1387,11 @@ export default function EstimateBuilder({ estimate: initialEstimate }: EstimateB
               {currentTab && (
                 <TradeSection
                   trade={currentTab}
+                  estimateId={initialEstimate.id}
                   items={currentTradeItems}
                   onAddItem={addItem}
                   onDeleteItem={deleteItem}
+                  onItemsLoaded={(loaded) => setItems(loaded)}
                 />
               )}
             </>

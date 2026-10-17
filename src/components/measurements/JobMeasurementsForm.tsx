@@ -1,6 +1,7 @@
 "use client";
 
 import { type JobMeasurements, type JobSection, type PlaneEntry, roofArea } from "@/lib/jobMeasurements";
+import SidingMeasurements, { type HoverData } from "@/components/measurements/SidingMeasurements";
 
 interface Props {
   value: JobMeasurements;
@@ -57,6 +58,9 @@ export default function JobMeasurementsForm({ value: job, onChange, sections }: 
   }
 
   const area = roofArea(job);
+  const siding = sections.has("siding");
+  const trim = sections.has("trim");
+  const autoSoffitArea = Math.round(job.soffitLf * (job.soffitOverhangIn / 12));
 
   return (
     <div className="space-y-6">
@@ -178,20 +182,69 @@ export default function JobMeasurementsForm({ value: job, onChange, sections }: 
         </div>
       )}
 
-      {sections.has("trim") && (
+      {siding && (
+        <div className="space-y-2">
+          <h3 className={`${headCls} px-1`}>Exterior Walls</h3>
+          <SidingMeasurements
+            part="measure"
+            initialData={{
+              measurementSource: job.sidingSource,
+              walls: job.walls,
+              gables: job.gables,
+              hover: {
+                facadesSqft: job.hoverFacadesSqft, openingsSqft: job.hoverOpeningsSqft,
+                openingQty: job.hoverOpeningQty,
+                openingsTopsLf: job.hoverOpeningsTopsLf, openingsSillsLf: job.hoverOpeningsSillsLf,
+                openingsSidesLf: job.hoverOpeningsSidesLf,
+                openingsPerimeterLf: job.hoverOpeningsTopsLf + job.hoverOpeningsSillsLf + job.hoverOpeningsSidesLf,
+                verticalTrimLf: job.hoverVerticalTrimLf, slopedTrimLf: job.hoverSlopedTrimLf,
+              } as HoverData,
+            }}
+            onChange={(d) => onChange({
+              ...job,
+              sidingSource: d.measurementSource,
+              walls: d.walls,
+              gables: d.gables,
+              hoverFacadesSqft: d.hover.facadesSqft,
+              hoverOpeningsSqft: d.hover.openingsSqft,
+              hoverOpeningQty: d.hover.openingQty,
+              hoverOpeningsTopsLf: d.hover.openingsTopsLf,
+              hoverOpeningsSillsLf: d.hover.openingsSillsLf,
+              hoverOpeningsSidesLf: d.hover.openingsSidesLf,
+              hoverVerticalTrimLf: d.hover.verticalTrimLf,
+              hoverSlopedTrimLf: d.hover.slopedTrimLf,
+            })}
+          />
+        </div>
+      )}
+
+      {(siding || trim) && (
         <div className={cardCls}>
-          <h3 className={headCls}>Exterior Trim</h3>
+          <h3 className={headCls}>Exterior Trim &amp; Soffit</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Num label="Corner Boards" unit="lf" value={job.cornerBoardsLf} onChange={(v) => set("cornerBoardsLf", v)} hint="All corners combined" />
-            <Num label="Frieze Board" unit="lf" value={job.friezeLf} onChange={(v) => set("friezeLf", v)} />
+            <Num label="Outside Corners" unit="lf" value={job.cornerBoardsLf} onChange={(v) => set("cornerBoardsLf", v)} hint={trim ? "Also corner boards" : "All outside corners"} />
+            {siding && <Num label="Inside Corners" unit="lf" value={job.insideCornersLf} onChange={(v) => set("insideCornersLf", v)} />}
+            <Num label="Level Starter" unit="lf" value={job.waterTableLf} onChange={(v) => set("waterTableLf", v)} hint="Base of the walls" />
             <Num label="Fascia" unit="lf" value={job.fasciaLf} onChange={(v) => set("fasciaLf", v)} />
-            <Num label="Level Starter" unit="lf" value={job.waterTableLf} onChange={(v) => set("waterTableLf", v)} hint="Foundation transition" />
-            <Num label="Band Board" unit="lf" value={job.bandBoardLf} onChange={(v) => set("bandBoardLf", v)} />
-            <Num label="Window Trim" unit="lf" value={job.windowTrimLf} onChange={(v) => set("windowTrimLf", v)} />
-            <Num label="Door Trim" unit="lf" value={job.doorTrimLf} onChange={(v) => set("doorTrimLf", v)} />
-            <Num label="J-Channel" unit="lf" value={job.jChannelLf} onChange={(v) => set("jChannelLf", v)} />
+            {siding && <Num label="Soffit Length" unit="lf" value={job.soffitLf} onChange={(v) => set("soffitLf", v)} />}
+            {siding && (
+              <Num
+                label="Soffit Area" unit="sqft" value={job.soffitArea} onChange={(v) => set("soffitArea", v)}
+                placeholder={autoSoffitArea > 0 ? `${autoSoffitArea} (auto)` : "0"}
+                hint={`Blank = length × ${job.soffitOverhangIn}" overhang`}
+              />
+            )}
+            {trim && <Num label="Frieze Board" unit="lf" value={job.friezeLf} onChange={(v) => set("friezeLf", v)} />}
+            <Num
+              label="J-Channel" unit="lf" value={job.jChannelLf} onChange={(v) => set("jChannelLf", v)}
+              hint={siding ? "Blank = from walls & openings" : undefined}
+            />
+            {siding && <Num label="Finish Trim" unit="lf" value={job.finishTrimLf} onChange={(v) => set("finishTrimLf", v)} />}
+            {trim && <Num label="Band Board" unit="lf" value={job.bandBoardLf} onChange={(v) => set("bandBoardLf", v)} />}
+            {trim && <Num label="Window Trim" unit="lf" value={job.windowTrimLf} onChange={(v) => set("windowTrimLf", v)} />}
+            {trim && <Num label="Door Trim" unit="lf" value={job.doorTrimLf} onChange={(v) => set("doorTrimLf", v)} />}
           </div>
-          <p className="text-[11px] text-slate-500">Rake board uses the Rakes length above.</p>
+          {trim && <p className="text-[11px] text-slate-500">Rake board uses the Rakes length above.</p>}
         </div>
       )}
     </div>

@@ -956,7 +956,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <RoofingMeasurements initialData={roofingData} onChange={setRoofingData} linked />
         )}
         {activeTab === "Siding" && (
-          <SidingMeasurements initialData={sidingData} onChange={setSidingData} />
+          <SidingMeasurements initialData={sidingData} onChange={setSidingData} part="options" />
         )}
         {activeTab === "Interior Trim" && (
           <InteriorTrimMeasurements key={interiorTrimKey} initialData={interiorTrimData} onChange={setInteriorTrimData} />

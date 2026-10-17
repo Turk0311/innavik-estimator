@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { withTaxAndDelivery, taxRateFrom, DEFAULT_TAX_RATE, SETTINGS_TRADE_TYPE } from "@/lib/pricing";
+import { withTaxAndDelivery, grossMargin, taxRateFrom, DEFAULT_TAX_RATE, SETTINGS_TRADE_TYPE } from "@/lib/pricing";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1638,7 +1638,10 @@ function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better',
         const pkgs = (i.packages ?? "good,better,best").split(",");
         return pkgs.includes(key) && (prevKey === null || !pkgs.includes(prevKey));
       });
-      return { ...pkg, ...withTaxAndDelivery(materials, labor, taxRate), visible };
+      const materialsCost = pkgItems.filter((i) => !i.isLabor).reduce((s, i) => s + i.cost * i.quantity, 0);
+      const laborCost = pkgItems.filter((i) => i.isLabor).reduce((s, i) => s + i.cost * i.quantity, 0);
+      const priced = withTaxAndDelivery(materials, labor, taxRate);
+      return { ...pkg, ...priced, gm: grossMargin(priced, materialsCost, laborCost, taxRate), visible };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, packageLabels, markupOverride, taxRate]);
@@ -1711,6 +1714,29 @@ function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better',
               <div className="flex justify-between text-xs">
                 <span className="text-slate-500">Labor</span>
                 <span className="text-slate-300 tabular-nums">{fmt(pkg.labor)}</span>
+              </div>
+            </div>
+
+            {/* Gross margin — internal only, not on the proposal */}
+            <div className="px-4 py-2.5 border-t border-slate-700/60 bg-slate-900/30 space-y-1">
+              {([
+                ["Material GM", pkg.gm.materialGM, pkg.gm.materialGMPct],
+                ["Labor GM", pkg.gm.laborGM, pkg.gm.laborGMPct],
+              ] as [string, number, number][]).map(([label, gm, pct]) => (
+                <div key={label} className="flex justify-between text-xs">
+                  <span className="text-slate-500">{label}</span>
+                  <span className="tabular-nums">
+                    <span className="text-slate-300">{fmt(gm)}</span>
+                    <span className="text-slate-600 ml-1.5">{pct.toFixed(1)}%</span>
+                  </span>
+                </div>
+              ))}
+              <div className="flex justify-between text-xs pt-1 border-t border-slate-700/40">
+                <span className="font-semibold text-slate-400">Total GM</span>
+                <span className="tabular-nums">
+                  <span className="font-semibold text-emerald-400">{fmt(pkg.gm.totalGM)}</span>
+                  <span className="text-slate-500 ml-1.5">{pkg.gm.totalGMPct.toFixed(1)}%</span>
+                </span>
               </div>
             </div>
           </div>

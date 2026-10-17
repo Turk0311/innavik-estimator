@@ -882,7 +882,7 @@ export function calculateSidingAssembly(
     : num(measurements.fasciaLf ?? measurements.fascia)
   const eavesLf = isHoverMode
     ? num(hover.eavesLf)
-    : fasciaLf  // manual mode doesn't split eaves/rakes; use full length as conservative estimate
+    : num(measurements.eavesLf) || fasciaLf  // without a separate eave length, fascia is the conservative estimate
   const wastePct = num(measurements.wasteFactor, 10)
   // Accessory counts
   const mountMasters     = num(measurements.mountMasters)
@@ -904,7 +904,7 @@ export function calculateSidingAssembly(
   let totalOpeningArea = 0
   let perimeter        = 0   // sum of wall widths = house perimeter
   let jChannelLf       = 0   // top of each wall + 3 sides of each opening
-  let undersillLf      = fasciaLf // undersill at soffit line; windows added below
+  let undersillLf      = eavesLf  // undersill at soffit line; windows added below
 
   if (isHoverMode) {
     // Hover mode: exact values from the Hover Report PDF

@@ -93,6 +93,8 @@ export interface SidingData {
 interface Props {
   initialData?: Partial<SidingData>;
   onChange: (data: SidingData) => void;
+  // "measure": walls/gables/Hover areas only (Measurements tab); "options": siding choices only (Siding tab)
+  part?: "all" | "measure" | "options";
 }
 
 const inputCls = "w-full rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition";
@@ -187,7 +189,7 @@ const defaultHover: HoverData = {
   verticalTrimLf: 0, slopedTrimLf: 0,
 };
 
-export default function SidingMeasurements({ initialData, onChange }: Props) {
+export default function SidingMeasurements({ initialData, onChange, part = "all" }: Props) {
   const [data, setData] = useState<SidingData>({
     measurementSource: (initialData?.measurementSource as MeasurementSource) ?? "manual",
     walls: (initialData?.walls ?? [newWall()]).map(w => ({ ...w, openings: w.openings ?? [] })),
@@ -254,23 +256,28 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
   }
 
   const isHover = data.measurementSource === "hover";
+  const showMeasure = part !== "options";
+  const showOptions = part !== "measure";
+  const showShared  = part === "all";   // corners, starter, soffit, fascia live in the shared Measurements section
 
   // Manual totals
   const totalWallArea    = data.walls.reduce((s, w) => s + w.width * w.height, 0);
   const totalGableArea   = data.gables.reduce((s, g) => s + calcGableArea(g), 0);
   const totalFieldArea   = totalWallArea + totalGableArea;
   const totalOpeningArea = data.walls.reduce((s, w) => s + (w.openings ?? []).reduce((os, o) => os + calcOpeningArea(o), 0), 0);
-  const grossWithWaste   = totalFieldArea * (1 + data.wasteFactor / 100);
+  const displayWaste     = showOptions ? data.wasteFactor : 0;
+  const grossWithWaste   = totalFieldArea * (1 + displayWaste / 100);
   const netSidingArea    = Math.max(Math.ceil(grossWithWaste - totalOpeningArea), Math.ceil(totalFieldArea * 0.5));
 
   // Hover totals
-  const hoverGross = data.hover.facadesSqft * (1 + data.wasteFactor / 100);
+  const hoverGross = data.hover.facadesSqft * (1 + displayWaste / 100);
   const hoverNet   = Math.max(Math.ceil(hoverGross - data.hover.openingsSqft), Math.ceil(data.hover.facadesSqft * 0.5));
 
   return (
     <div className="space-y-5">
 
       {/* ── Source Toggle ─────────────────────────────────────────────────────── */}
+      {showMeasure && (
       <div className={sectionCls}>
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Measurement Source</h3>
         <div className="flex gap-3">
@@ -292,8 +299,10 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
           })}
         </div>
       </div>
+      )}
 
       {/* ── Material ─────────────────────────────────────────────────────────── */}
+      {showOptions && (
       <div className={sectionCls}>
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Siding Material</h3>
         <div className="flex flex-wrap gap-3">
@@ -350,9 +359,28 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
           </div>
         )}
       </div>
+      )}
+
+      {/* ── Waste (options view; otherwise it sits with the walls) ───────────── */}
+      {part === "options" && (
+        <div className={sectionCls}>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Waste Factor</h3>
+          <div className="flex gap-2 max-w-xs">
+            {WASTE_OPTIONS.map(w => (
+              <button key={w} type="button" onClick={() => update("wasteFactor", w)}
+                className={["flex-1 py-1.5 rounded-lg border text-sm font-semibold transition-colors",
+                  data.wasteFactor === w
+                    ? "border-blue-500 bg-blue-900/30 text-blue-300"
+                    : "border-slate-600 text-slate-400 hover:border-slate-500"].join(" ")}>
+                {w}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── HOVER MODE ──────────────────────────────────────────────────────── */}
-      {isHover && (<>
+      {isHover && showMeasure && (<>
 
         {/* 1. Wall Area */}
         <div className={sectionCls}>
@@ -365,7 +393,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
               onChange={v => updateHover({ facadesSqft: v })} hint="Siding column" />
             <NumField label="Openings" unit="sqft" value={data.hover.openingsSqft}
               onChange={v => updateHover({ openingsSqft: v })} hint="deduction" />
-            <div>
+            {showShared && <div>
               <label className={labelCls}>Waste Factor</label>
               <div className="flex gap-2">
                 {WASTE_OPTIONS.map(w => (
@@ -378,12 +406,12 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
           {data.hover.facadesSqft > 0 && (
             <div className="rounded-lg bg-sky-900/20 border border-sky-800/50 px-4 py-2.5 flex flex-wrap items-center gap-4 text-sm">
               <span className="text-slate-400">{data.hover.facadesSqft.toLocaleString()} sqf</span>
-              <span className="text-slate-600">+{data.wasteFactor}% →</span>
+              {displayWaste > 0 && <span className="text-slate-600">+{displayWaste}% →</span>}
               <span className="text-white font-semibold">{Math.ceil(hoverGross).toLocaleString()} sqf</span>
               {data.hover.openingsSqft > 0 && <>
                 <span className="text-slate-600">− {data.hover.openingsSqft} openings →</span>
@@ -393,6 +421,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
           )}
         </div>
 
+        {showShared && <>
         {/* 2. Starter Strip */}
         <div className={sectionCls}>
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Starter Strip</h3>
@@ -427,6 +456,8 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
           </div>
         </div>
 
+        </>}
+
         {/* 4. Opening Trim (J-Channel) */}
         <div className={sectionCls}>
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Opening Trim — J-Channel</h3>
@@ -450,6 +481,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
         </div>
 
         {/* 5. Fascia & Soffit */}
+        {showShared && (
         <div className={sectionCls}>
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Fascia &amp; Soffit</h3>
           <p className="text-xs text-slate-500 -mt-2">From Hover Summary → Roofline table</p>
@@ -468,6 +500,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
               onChange={v => updateHover({ friezeBoardLf: v })} hint="Level Frieze Board LF" />
           </div>
         </div>
+        )}
 
         {/* 6. Other Trim */}
         <div className={sectionCls}>
@@ -484,13 +517,13 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
       </>)}
 
       {/* ── MANUAL MODE ─────────────────────────────────────────────────────── */}
-      {!isHover && (<>
+      {!isHover && showMeasure && (<>
 
         {/* Walls */}
         <div className={sectionCls}>
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Walls</h3>
-            <div className="flex items-center gap-3">
+            {showShared && <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500">Waste:</span>
               <div className="flex gap-1">
                 {WASTE_OPTIONS.map(w => (
@@ -503,7 +536,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
 
           <div className="grid grid-cols-[1fr_100px_100px_80px_32px_32px] gap-2 text-xs text-slate-500 font-medium px-1">
@@ -626,7 +659,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
             <div className="rounded-lg bg-blue-900/20 border border-blue-800/50 px-4 py-2.5 flex flex-wrap items-center gap-4 text-sm">
               <span className="text-slate-400">{totalWallArea.toLocaleString()} sqf walls</span>
               {totalGableArea > 0 && <span className="text-slate-400">+ {totalGableArea.toFixed(0)} gables</span>}
-              <span className="text-slate-600">+{data.wasteFactor}% →</span>
+              {displayWaste > 0 && <span className="text-slate-600">+{displayWaste}% →</span>}
               {totalOpeningArea > 0 && <span className="text-red-400">− {totalOpeningArea.toFixed(0)} openings</span>}
               <span className="text-blue-300 font-bold">{netSidingArea.toLocaleString()} sqf net</span>
             </div>
@@ -675,6 +708,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
           </button>
         </div>
 
+        {showShared && <>
         {/* Soffit & Fascia */}
         <div className={sectionCls}>
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Soffit &amp; Fascia</h3>
@@ -696,10 +730,12 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
             <NumField label="Outside Corners" unit="lf" value={data.outsideCorners} onChange={v => update("outsideCorners", v)} />
           </div>
         </div>
+        </>}
 
       </>)}
 
       {/* ── Accessories (both modes) ─────────────────────────────────────────── */}
+      {showOptions && (
       <div className={sectionCls}>
         <div>
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Accessories</h3>
@@ -752,6 +788,7 @@ export default function SidingMeasurements({ initialData, onChange }: Props) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

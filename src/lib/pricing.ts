@@ -23,6 +23,26 @@ export function withTaxAndDelivery(materials: number, labor: number, taxRate: nu
   return { materials, tax, delivery, labor, total: materials + tax + delivery + labor };
 }
 
+// Matches the sheet: material GM includes tax and delivery on the sell side and tax paid on the cost side
+export function grossMargin(
+  priced: { materials: number; tax: number; delivery: number; labor: number },
+  materialsCost: number,
+  laborCost: number,
+  taxRate: number,
+) {
+  const materialSell = priced.materials + priced.tax + priced.delivery;
+  const materialGM = materialSell - withTax(materialsCost, taxRate);
+  const laborGM = priced.labor - laborCost;
+  const totalSell = materialSell + priced.labor;
+  const pct = (gm: number, sell: number) => (sell > 0 ? (gm / sell) * 100 : 0);
+  return {
+    materialGM, laborGM, totalGM: materialGM + laborGM,
+    materialGMPct: pct(materialGM, materialSell),
+    laborGMPct: pct(laborGM, priced.labor),
+    totalGMPct: pct(materialGM + laborGM, totalSell),
+  };
+}
+
 export function taxRateFrom(records: { tradeType: string; data: unknown }[]): number {
   const data = records.find((r) => r.tradeType === SETTINGS_TRADE_TYPE)?.data as { taxRate?: unknown } | undefined;
   const rate = Number(data?.taxRate);

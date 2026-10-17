@@ -12,6 +12,7 @@ export interface GutterData {
 interface Props {
   initialData?: Partial<GutterData>;
   onChange: (data: GutterData) => void;
+  linked?: boolean;
 }
 
 const inputCls = "w-full rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition";
@@ -39,7 +40,7 @@ function Field({
   );
 }
 
-export default function GutterMeasurements({ initialData, onChange }: Props) {
+export default function GutterMeasurements({ initialData, onChange, linked = false }: Props) {
   const [data, setData] = useState<GutterData>({
     linearFt: initialData?.linearFt ?? 0,
     downspouts: initialData?.downspouts ?? 0,
@@ -55,6 +56,7 @@ export default function GutterMeasurements({ initialData, onChange }: Props) {
 
   return (
     <div className="space-y-6">
+      {!linked && (
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Gutter Measurements</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -71,6 +73,7 @@ export default function GutterMeasurements({ initialData, onChange }: Props) {
           </div>
         )}
       </div>
+      )}
 
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
         <label className="flex items-center gap-3 cursor-pointer">

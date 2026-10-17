@@ -37,6 +37,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 // Every category an assembly writes, keyed by lowercase trade
 const TRADE_CLEAR_MAP: Record<string, string[]> = {
+  "roofing":                      ["Roofing", "Roofing Accessories"],
   "siding":                       ["Siding", "Siding Accessories"],
   "siding accessories":           ["Siding", "Siding Accessories"],
   "interior trim":                ["Interior Trim", "Interior Trim Accessories"],

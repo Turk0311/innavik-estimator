@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { withTaxAndDelivery, taxRateFrom, DEFAULT_TAX_RATE, SETTINGS_TRADE_TYPE } from "@/lib/pricing";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1495,6 +1496,47 @@ function MarkupSlider({ value, onChange, onCommit, saving }: MarkupSliderProps) 
   );
 }
 
+function TaxRateBox({ value, onCommit }: { value: number; onCommit: (rate: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  const isCustom = value !== DEFAULT_TAX_RATE;
+
+  function commit() {
+    const n = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(n) || n < 0 || n >= 100) {
+      setDraft(String(value));
+      return;
+    }
+    if (n !== value) onCommit(n);
+  }
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+      <div>
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Material Tax</h3>
+        <p className="text-[10px] text-slate-600">
+          {isCustom ? `Custom · standard is ${DEFAULT_TAX_RATE}%` : "Standard rate"}
+        </p>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          min="0"
+          max="99"
+          step="0.1"
+          className={`w-20 rounded-lg bg-slate-700 border px-2.5 py-1.5 text-sm text-right tabular-nums text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            isCustom ? "border-amber-600" : "border-slate-600"
+          }`}
+        />
+        <span className="text-sm text-slate-400">%</span>
+      </div>
+    </div>
+  );
+}
+
 function dominantMarkup(items: EstimateItem[]): number {
   const counts = new Map<number, number>();
   for (const i of items) counts.set(i.markup, (counts.get(i.markup) ?? 0) + 1);
@@ -1543,9 +1585,10 @@ interface SummaryPanelProps {
   items: EstimateItem[];
   packageLabels?: Record<PkgKey, string>;
   markupOverride?: number;
+  taxRate?: number;
 }
 
-function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better', best: 'Best' }, markupOverride }: SummaryPanelProps) {
+function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better', best: 'Best' }, markupOverride, taxRate = DEFAULT_TAX_RATE }: SummaryPanelProps) {
   function effectiveMarkup(item: EstimateItem) {
     return markupOverride != null ? markupOverride : item.markup;
   }
@@ -1595,10 +1638,10 @@ function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better',
         const pkgs = (i.packages ?? "good,better,best").split(",");
         return pkgs.includes(key) && (prevKey === null || !pkgs.includes(prevKey));
       });
-      return { ...pkg, materials, labor, total: materials + labor, visible };
+      return { ...pkg, ...withTaxAndDelivery(materials, labor, taxRate), visible };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, packageLabels, markupOverride]);
+  }, [items, packageLabels, markupOverride, taxRate]);
 
   const visibleTotals = packageTotals.filter((p) => p.visible);
   const isMulti = visibleTotals.length > 1;
@@ -1653,6 +1696,18 @@ function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better',
                 <span className="text-slate-500">Materials</span>
                 <span className="text-slate-300 tabular-nums">{fmt(pkg.materials)}</span>
               </div>
+              {pkg.tax > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Tax ({taxRate}%)</span>
+                  <span className="text-slate-300 tabular-nums">{fmt(pkg.tax)}</span>
+                </div>
+              )}
+              {pkg.delivery > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Delivery</span>
+                  <span className="text-slate-300 tabular-nums">{fmt(pkg.delivery)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-xs">
                 <span className="text-slate-500">Labor</span>
                 <span className="text-slate-300 tabular-nums">{fmt(pkg.labor)}</span>
@@ -1918,6 +1973,7 @@ function MeasurementsSummaryPanel({ measurements, items = [], markupOverride }: 
   const [open, setOpen] = useState(true);
 
   const sections = measurements
+    .filter((m) => m.tradeType !== "Job" && m.tradeType !== SETTINGS_TRADE_TYPE)
     .map((m) => ({ tradeType: m.tradeType, lines: summarizeMeasurement(m.tradeType, m.data) }))
     .filter((s) => s.lines.length > 0);
 
@@ -2023,6 +2079,16 @@ export default function EstimateBuilder({ estimate: initialEstimate, isAdmin = f
     () => isDraggingMarkup ? items.map((i) => (i.markup === baseMarkup ? { ...i, markup: globalMarkup } : i)) : items,
     [items, isDraggingMarkup, baseMarkup, globalMarkup]
   );
+
+  const [taxRate, setTaxRate] = useState<number>(() => taxRateFrom(measurements));
+  const saveTaxRate = useCallback(async (rate: number) => {
+    setTaxRate(rate);
+    await fetch(`/api/estimates/${initialEstimate.id}/measurements`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tradeType: SETTINGS_TRADE_TYPE, data: { taxRate: rate }, applyAssembly: false }),
+    });
+  }, [initialEstimate.id]);
 
   const commitMarkup = useCallback(async (value: number) => {
     setIsDraggingMarkup(false);
@@ -2443,6 +2509,7 @@ export default function EstimateBuilder({ estimate: initialEstimate, isAdmin = f
             onCommit={commitMarkup}
             saving={markupSaving}
           />
+          <TaxRateBox value={taxRate} onCommit={saveTaxRate} />
           {overrideItems.length > 0 && (
             <MarkupOverridesPanel
               items={overrideItems}
@@ -2450,7 +2517,7 @@ export default function EstimateBuilder({ estimate: initialEstimate, isAdmin = f
               onReset={(id) => updateItem(id, { markup: baseMarkup })}
             />
           )}
-          <SummaryPanel items={previewItems} packageLabels={packageLabels} />
+          <SummaryPanel items={previewItems} packageLabels={packageLabels} taxRate={taxRate} />
           <MeasurementsSummaryPanel measurements={measurements} items={previewItems} />
         </div>
       </div>

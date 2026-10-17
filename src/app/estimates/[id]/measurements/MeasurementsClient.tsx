@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import JobMeasurementsForm from "@/components/measurements/JobMeasurementsForm";
+import {
+  type JobMeasurements, JOB_TRADE_TYPE, LINKED_TABS,
+  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab,
+} from "@/lib/jobMeasurements";
 import { useRouter } from "next/navigation";
 import RoofingMeasurements, { type RoofingData } from "@/components/measurements/RoofingMeasurements";
 import SidingMeasurements, { type SidingData } from "@/components/measurements/SidingMeasurements";
@@ -78,6 +83,8 @@ function normalizeTrade(scope: string): string {
   return scope;
 }
 
+const MEASURE_TAB = "Measurements";
+
 function savedAs<T>(savedMeasurements: MeasurementRecord[], tradeType: string): T | undefined {
   const found = savedMeasurements.find((m) => m.tradeType === tradeType);
   return found?.data as T | undefined;
@@ -89,7 +96,14 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   const [activeScopes, setActiveScopes] = useState<string[]>(scopes);
   const [showScopeModal, setShowScopeModal] = useState(false);
   const normalizedTabs = [...new Set(activeScopes.map(normalizeTrade))];
-  const [activeTab, setActiveTab] = useState<string>(normalizedTabs[0] ?? "");
+  const jobSections = sectionsForTabs(normalizedTabs);
+  const showJobTab = jobSections.size > 0;
+  const linkedTabs = normalizedTabs.filter((t) => LINKED_TABS.has(t));
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    sectionsForTabs(normalizedTabs).size > 0 ? MEASURE_TAB : normalizedTabs[0] ?? ""
+  );
+  const [job, setJob] = useState<JobMeasurements>(() => jobFromSaved(savedMeasurements));
+  const [jobSaved, setJobSaved] = useState(true);
 
   // Form state per trade
   const [roofingData, setRoofingData] = useState<RoofingData>(
@@ -214,7 +228,28 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   const [deckFramingKey,    setDeckFramingKey]    = useState(0);
   const [deckFramingAccKey, setDeckFramingAccKey] = useState(0);
 
+  // Linked scopes always take their measurements from the Measurements tab
   function getDataForTrade(tradeType: string): Record<string, unknown> {
+    const scopeData = getScopeData(tradeType);
+    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job) : null;
+    return linked ? { ...scopeData, ...linked } : scopeData;
+  }
+
+  async function saveJob() {
+    const res = await fetch(`/api/estimates/${estimateId}/measurements`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tradeType: JOB_TRADE_TYPE, data: job, applyAssembly: false }),
+    });
+    if (res.ok) setJobSaved(true);
+  }
+
+  function updateJob(next: JobMeasurements) {
+    setJob(next);
+    setJobSaved(false);
+  }
+
+  function getScopeData(tradeType: string): Record<string, unknown> {
     switch (tradeType) {
       case "Roofing": return roofingData as unknown as Record<string, unknown>;
       case "Siding": return sidingData as unknown as Record<string, unknown>;
@@ -265,6 +300,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
     const data = getDataForTrade(tradeType);
 
     try {
+      if (LINKED_TABS.has(tradeType) && !jobSaved) await saveJob();
       const res = await fetch(`/api/estimates/${estimateId}/measurements`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -337,6 +373,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   }
 
   async function saveMeasurement(tradeType: string) {
+    if (tradeType === MEASURE_TAB) return saveJob();
     const data = getDataForTrade(tradeType);
     await fetch(`/api/estimates/${estimateId}/measurements`, {
       method: "POST",
@@ -736,6 +773,22 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
     <div className="space-y-6">
       {/* Tab navigation */}
       <div className="flex items-center gap-1 flex-wrap">
+        {showJobTab && (
+          <button
+            onClick={() => setActiveTab(MEASURE_TAB)}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors mr-2 ${
+              activeTab === MEASURE_TAB
+                ? "bg-amber-500 text-slate-900"
+                : "text-amber-400 hover:text-amber-300 border border-amber-600/60 hover:bg-amber-500/10"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />
+            </svg>
+            {MEASURE_TAB}
+            {!jobSaved && <span className="w-2 h-2 rounded-full bg-orange-300 flex-shrink-0" title="Unsaved changes" />}
+          </button>
+        )}
         {normalizedTabs.map((tab) => (
           <div key={tab} className="group relative inline-flex">
             <button
@@ -846,6 +899,25 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
         </div>
       )}
 
+      {/* Linked scope: show the measurements this scope will use */}
+      {LINKED_TABS.has(activeTab) && (
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-amber-700/50 bg-amber-950/20 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-1">From Measurements</p>
+            <p className="text-sm text-slate-300">
+              {summaryForTab(activeTab, job).join(" · ") || "Nothing entered yet"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab(MEASURE_TAB)}
+            className="flex-shrink-0 text-xs font-semibold text-amber-300 hover:text-white border border-amber-600/60 hover:border-amber-400 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Edit measurements
+          </button>
+        </div>
+      )}
+
       {/* Measurement sync banner */}
       {(() => {
         const info = getSyncInfo(activeTab);
@@ -877,8 +949,11 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
 
       {/* Form content */}
       <div>
+        {activeTab === MEASURE_TAB && (
+          <JobMeasurementsForm value={job} onChange={updateJob} sections={jobSections} />
+        )}
         {activeTab === "Roofing" && (
-          <RoofingMeasurements initialData={roofingData} onChange={setRoofingData} />
+          <RoofingMeasurements initialData={roofingData} onChange={setRoofingData} linked />
         )}
         {activeTab === "Siding" && (
           <SidingMeasurements initialData={sidingData} onChange={setSidingData} />
@@ -921,7 +996,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           />
         )}
         {activeTab === "Gutters" && (
-          <GutterMeasurements initialData={gutterData} onChange={setGutterData} />
+          <GutterMeasurements initialData={gutterData} onChange={setGutterData} linked />
         )}
         {activeTab === "Wall Assembly" && (
           <WallAssemblyMeasurements initialData={wallData} onChange={setWallData} />
@@ -966,7 +1041,11 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <DrywallAccessoriesMeasurements key={drywallAccKey} initialData={drywallAccData} onChange={setDrywallAccData} />
         )}
         {activeTab === "Exterior Trim" && (
-          <ExteriorTrimMeasurements initialData={exteriorTrimData} onChange={setExteriorTrimData} />
+          <ExteriorTrimMeasurements
+            initialData={exteriorTrimData}
+            onChange={setExteriorTrimData}
+            linkedValues={deriveForTab("Exterior Trim", job) as Partial<ExteriorTrimData>}
+          />
         )}
         {activeTab === "Interior Trim Accessories" && (
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-3">
@@ -1043,6 +1122,17 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
               Sync All
             </button>
           )}
+          {activeTab === MEASURE_TAB ? (
+            <button
+              onClick={async () => { await saveJob(); setActiveTab(linkedTabs[0] ?? normalizedTabs[0]); }}
+              className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors"
+            >
+              Next: {linkedTabs[0] ?? normalizedTabs[0]}
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          ) : (
           <button
             onClick={() => applyAssembly(activeTab)}
             disabled={!!applying}
@@ -1068,10 +1158,11 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                Calculate &amp; Apply
+                {LINKED_TABS.has(activeTab) ? "Confirm & Apply" : "Calculate & Apply"}
               </>
             )}
           </button>
+          )}
         </div>
       </div>
 

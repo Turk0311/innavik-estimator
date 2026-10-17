@@ -13,6 +13,8 @@ export interface PackageOption {
   tiers: Tier[];
   materials: number;
   labor: number;
+  tax: number;
+  delivery: number;
   total: number;
 }
 
@@ -99,9 +101,19 @@ export default function PackageSelector({ packages, isMultiPackage, items }: Pro
                 <span style={{ color: "#64748b" }}>Materials</span>
                 <span style={{ color: "#334155" }}>{fmt(pkg.materials)}</span>
               </div>
-              <div style={{ marginBottom: "8px", display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+              <div style={{ marginBottom: "3px", display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
                 <span style={{ color: "#64748b" }}>Labor</span>
                 <span style={{ color: "#334155" }}>{fmt(pkg.labor)}</span>
+              </div>
+              {pkg.delivery > 0 && (
+                <div style={{ marginBottom: "3px", display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+                  <span style={{ color: "#64748b" }}>Delivery</span>
+                  <span style={{ color: "#334155" }}>{fmt(pkg.delivery)}</span>
+                </div>
+              )}
+              <div style={{ marginBottom: "8px", display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+                <span style={{ color: "#64748b" }}>Tax</span>
+                <span style={{ color: "#334155" }}>{fmt(pkg.tax)}</span>
               </div>
 
               <div style={{ borderTop: `1px solid ${pkg.color}30`, paddingTop: "7px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -149,7 +161,7 @@ export default function PackageSelector({ packages, isMultiPackage, items }: Pro
               ✓ {selectedPkg.label} Package Selected
             </div>
             <div style={{ fontSize: "10px", color: "#64748b" }}>
-              Materials {fmt(selectedPkg.materials)} · Labor {fmt(selectedPkg.labor)}
+              Materials {fmt(selectedPkg.materials)} · Labor {fmt(selectedPkg.labor)}{selectedPkg.delivery > 0 && <> · Delivery {fmt(selectedPkg.delivery)}</>} · Tax {fmt(selectedPkg.tax)}
             </div>
           </div>
           <div style={{ textAlign: "right" }}>

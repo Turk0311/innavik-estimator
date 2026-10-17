@@ -239,6 +239,11 @@ function num(v: unknown, fallback = 0): number {
 // ---------------------------------------------------------------------------
 // Roofing Assembly — supports planes array (new) or legacy roofArea (old)
 // ---------------------------------------------------------------------------
+// Steepest rise (per 12) in each pitch range — used for ice & water coverage up the slope
+const PITCH_RISE: Record<string, number> = {
+  'up_to_6_12': 6, '7_8_12': 8, '9_10_12': 10, '11_12_12': 12, 'mansard': 12, 'flat': 0,
+}
+
 // Pitch → exact line name on the admin Labor page
 const ROOFING_RR_LABOR_NAME: Record<string, string> = {
   'up_to_6_12': 'R&R Roofing up to 6/12',
@@ -311,6 +316,12 @@ export function calculateRoofingAssembly(
   const miscQty       = num(measurements.miscQty)
   const miscCost      = num(measurements.miscCost, 100)
   const roofingCharge = num(measurements.roofingCharge, 500)
+  const soffitOverhangIn = num(measurements.soffitOverhangIn, 12)
+  const iceWaterRows  = num(measurements.iceWaterRows)
+  const babytins      = num(measurements.babytins)
+  const dormerFlashing = num(measurements.dormerFlashing)
+  const caulkTubes    = num(measurements.caulkTubes)
+  const stapleBoxes   = num(measurements.stapleBoxes)
 
   if (sqf <= 0) return []
 
@@ -513,12 +524,15 @@ export function calculateRoofingAssembly(
     }
   }
 
+  // 10' sticks after the roof waste factor
+  const sticks10 = (lf: number) => ceil(Math.round(lf * (1 + wastePct / 100) * 100) / 1000)
+
   // 6. Drip edge — rakes only, sold in 10' sticks
   const dripProduct = findProduct(products, 'drip edge', 'drip')
   if (rakesLf > 0) {
     items.push({
       description: dripProduct?.name ?? 'Drip edge',
-      quantity: ceil(rakesLf / 10),
+      quantity: sticks10(rakesLf),
       unit: dripProduct?.unit ?? 'ea',
       cost: dripProduct?.cost ?? DEFAULT_COSTS.dripEdge,
       markup: DEFAULT_MARKUP,
@@ -529,13 +543,13 @@ export function calculateRoofingAssembly(
     })
   }
 
-  // 6b. Gutter apron — sold in 10' sticks; divide eave lf by 10
+  // 6b. Gutter apron — eaves, sold in 10' sticks
   if (eavesLf > 0) {
     const gutterApronProduct = products.find((p) => p.name.toLowerCase() === 'gutter apron')
       ?? findProduct(products, 'gutter apron', 'apron')
     items.push({
       description: gutterApronProduct?.name ?? 'Gutter apron',
-      quantity: ceil(eavesLf / 10),
+      quantity: sticks10(eavesLf),
       unit: gutterApronProduct?.unit ?? 'ea',
       cost: gutterApronProduct?.cost ?? dripProduct?.cost ?? DEFAULT_COSTS.dripEdge * 10,
       markup: DEFAULT_MARKUP,
@@ -547,8 +561,15 @@ export function calculateRoofingAssembly(
   }
 
   // 7. Ice & water shield — GOOD: Tri-Built  |  BETTER: GAF WeatherWatch
-  if (eavesLf > 0) {
-    const iceQty = ceil((eavesLf * 2) / 66)
+  // Must reach 24" inside the exterior wall: (overhang + 24") measured up the slope.
+  // 36" roll, 3" lap → first row 36", each extra row 33". Sales can request more rows, never fewer.
+  // Valleys get one full-length strip. Rolls are 66 lf (2 sq).
+  if (eavesLf > 0 || valleysLf > 0) {
+    const rise = PITCH_RISE[pitch] ?? 6
+    const slopeIn = (soffitOverhangIn + 24) * Math.sqrt(1 + (rise / 12) ** 2)
+    const codeRows = slopeIn <= 36 ? 1 : 1 + ceil((slopeIn - 36) / 33)
+    const iceRows = Math.max(codeRows, iceWaterRows)
+    const iceQty = ceil((eavesLf * iceRows + valleysLf) / 66)
     const iceKeywords = ['ice', 'water']
     const iceGood = products.find(p => isTriBuilt(p) && iceKeywords.some(k => p.name.toLowerCase().includes(k)))
       ?? findProduct(products, 'ice & water', 'ice and water')
@@ -595,22 +616,6 @@ export function calculateRoofingAssembly(
     isLabor: false,
     productId: nailProduct?.id,
   })
-
-  // 9. Valley flashing
-  if (valleysLf > 0) {
-    const valleyProduct = findProduct(products, 'valley', 'valley flashing')
-    items.push({
-      description: valleyProduct?.name ?? 'Valley flashing',
-      quantity: valleysLf,
-      unit: 'lf',
-      cost: valleyProduct?.cost ?? 2.5,
-      markup: DEFAULT_MARKUP,
-      tier: valleyProduct?.tier ?? 'GOOD',
-      category: 'Roofing',
-      isLabor: false,
-      productId: valleyProduct?.id,
-    })
-  }
 
   // 11. Skylight flashing
   if (skylights > 0) {
@@ -748,6 +753,31 @@ export function calculateRoofingAssembly(
       tier: 'GOOD',
       category: 'Roofing',
       isLabor: false,
+    })
+  }
+
+  // 17a. Accessories entered as quantities on the Roofing tab
+  const accessories: [number, string, string, number][] = [
+    [babytins,       'BABYTINS 8X8',                          'babytin',  49.46],
+    [dormerFlashing, "Dormer Flashing 10'",                   'dormer',   20],
+    [caulkTubes,     'OSI / NPC / TRI  CAULK (12TB PER BOX)', 'caulk',    8.68],
+    [stapleBoxes,    'TRI-BUILT DUOFAST STAPLES 5/16"',       'staple',   7.79],
+  ]
+  for (const [qty, exactName, keyword, fallbackCost] of accessories) {
+    if (qty <= 0) continue
+    const p = products.find(x => x.name.toLowerCase() === exactName.toLowerCase())
+      ?? findProduct(products, keyword)
+    items.push({
+      description: p?.name ?? exactName,
+      quantity: qty,
+      unit: p?.unit ?? 'ea',
+      cost: p?.cost ?? fallbackCost,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      packages: 'good,better,best',
+      category: 'Roofing Accessories',
+      isLabor: false,
+      productId: p?.id,
     })
   }
 

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import PrintControls from "./PrintControls";
 import PackageSelector from "./PackageSelector";
+import { withTaxAndDelivery, taxRateFrom } from "@/lib/pricing";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -105,6 +106,8 @@ export default async function PrintPage({ params, searchParams }: PageProps) {
   if (!isAdmin && estimate.userId !== session.user.id) notFound();
 
   const items = estimate.items.map((i) => ({ ...i, packages: i.packages ?? "good,better,best" })) as EstimateItem[];
+  const settings = await prisma.measurement.findMany({ where: { estimateId: id, tradeType: "Settings" } });
+  const taxRate = taxRateFrom(settings);
 
   const tierTotals = calcTierTotals(items);
   const cumul = calcCumulative(tierTotals);
@@ -155,7 +158,7 @@ export default async function PrintPage({ params, searchParams }: PageProps) {
     const pkgItems = items.filter((i) => (i.packages ?? "good,better,best").split(",").includes(key));
     const materials = pkgItems.filter((i) => !i.isLabor).reduce((s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
     const labor     = pkgItems.filter((i) => i.isLabor).reduce( (s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
-    return { ...pkg, materials, labor, total: materials + labor };
+    return { ...pkg, ...withTaxAndDelivery(materials, labor, taxRate) };
   });
 
   // Pre-compute print items for client component (sell prices computed server-side)
@@ -269,8 +272,8 @@ export default async function PrintPage({ params, searchParams }: PageProps) {
             {showPackages ? (
               /* ── Three-package view ──────────────────────────────────────── */
               <PackageSelector
-                packages={packageTotals.map(({ label, subLabel, color, bg, border, tiers, materials, labor, total }) => ({
-                  label, subLabel, color, bg, border, tiers, materials, labor, total,
+                packages={packageTotals.map(({ label, subLabel, color, bg, border, tiers, materials, labor, tax, delivery, total }) => ({
+                  label, subLabel, color, bg, border, tiers, materials, labor, tax, delivery, total,
                 }))}
                 isMultiPackage={isMultiPackage}
                 items={printItems}
@@ -280,16 +283,25 @@ export default async function PrintPage({ params, searchParams }: PageProps) {
               (() => {
                 const allMaterials = items.filter((i) => !i.isLabor).reduce((s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
                 const allLabor     = items.filter((i) =>  i.isLabor).reduce((s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
-                const grandTotal   = allMaterials + allLabor;
+                const priced       = withTaxAndDelivery(allMaterials, allLabor, taxRate);
+                const grandTotal   = priced.total;
                 return (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                     <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", background: "#f8fafc" }}>
                       <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px" }}>Materials</div>
-                      <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(allMaterials)}</div>
+                      <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(priced.materials)}</div>
                     </div>
                     <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", background: "#f8fafc" }}>
                       <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px" }}>Labor</div>
                       <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(allLabor)}</div>
+                    </div>
+                    <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", background: "#f8fafc" }}>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px" }}>Delivery</div>
+                      <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(priced.delivery)}</div>
+                    </div>
+                    <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", background: "#f8fafc" }}>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px" }}>Tax</div>
+                      <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(priced.tax)}</div>
                     </div>
                     <div style={{ gridColumn: "1 / -1", border: "1.5px solid #1d4ed8", borderRadius: "8px", padding: "14px 16px", background: "#eff6ff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontWeight: "600", fontSize: "13px", color: "#1e40af" }}>Estimate Total</span>

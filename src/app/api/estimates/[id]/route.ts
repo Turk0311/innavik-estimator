@@ -101,8 +101,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Delete items first, then estimate
+  // Delete child rows first (no cascade in schema), then the estimate
   await prisma.estimateItem.deleteMany({ where: { estimateId: id } });
+  await prisma.measurement.deleteMany({ where: { estimateId: id } });
   await prisma.estimate.delete({ where: { id } });
 
   return NextResponse.json({ success: true });

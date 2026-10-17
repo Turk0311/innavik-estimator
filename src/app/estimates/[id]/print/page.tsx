@@ -3,10 +3,14 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import PrintControls from "./PrintControls";
+import PackageSelector from "./PackageSelector";
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ packages?: string }>;
+};
 
-type Tier = "GOOD" | "BETTER" | "BEST";
+type Tier = "GOOD" | "GOOD_PLUS" | "BETTER" | "BETTER_PLUS" | "BEST" | "BEST_PLUS";
 
 interface EstimateItem {
   id: string;
@@ -16,6 +20,7 @@ interface EstimateItem {
   cost: number;
   markup: number;
   tier: Tier;
+  packages: string;
   category: string;
   isLabor: boolean;
 }
@@ -29,11 +34,27 @@ function fmt(n: number): string {
   return n.toLocaleString("en-CA", { style: "currency", currency: "CAD" });
 }
 
+const TIER_ORDER: Tier[] = ["GOOD", "GOOD_PLUS", "BETTER", "BETTER_PLUS", "BEST", "BEST_PLUS"];
+
+const TIER_PRINT_LABEL: Record<Tier, string> = {
+  GOOD: "Good", GOOD_PLUS: "Good+", BETTER: "Better",
+  BETTER_PLUS: "Better+", BEST: "Best", BEST_PLUS: "Best+",
+};
+
+const TIER_PRINT_COLOR: Record<Tier, string> = {
+  GOOD: "#059669", GOOD_PLUS: "#16a34a",
+  BETTER: "#2563eb", BETTER_PLUS: "#0284c7",
+  BEST: "#d97706", BEST_PLUS: "#ea580c",
+};
+
 function calcTierTotals(items: EstimateItem[]) {
   const result: Record<Tier, { materials: number; labor: number }> = {
-    GOOD: { materials: 0, labor: 0 },
-    BETTER: { materials: 0, labor: 0 },
-    BEST: { materials: 0, labor: 0 },
+    GOOD:        { materials: 0, labor: 0 },
+    GOOD_PLUS:   { materials: 0, labor: 0 },
+    BETTER:      { materials: 0, labor: 0 },
+    BETTER_PLUS: { materials: 0, labor: 0 },
+    BEST:        { materials: 0, labor: 0 },
+    BEST_PLUS:   { materials: 0, labor: 0 },
   };
   for (const item of items) {
     const sell = sellPrice(item.cost, item.markup) * item.quantity;
@@ -44,24 +65,31 @@ function calcTierTotals(items: EstimateItem[]) {
 }
 
 function calcCumulative(totals: Record<Tier, { materials: number; labor: number }>) {
-  return {
-    GOOD: totals.GOOD,
-    BETTER: {
-      materials: totals.GOOD.materials + totals.BETTER.materials,
-      labor: totals.GOOD.labor + totals.BETTER.labor,
-    },
-    BEST: {
-      materials: totals.GOOD.materials + totals.BETTER.materials + totals.BEST.materials,
-      labor: totals.GOOD.labor + totals.BETTER.labor + totals.BEST.labor,
-    },
+  const result: Record<Tier, { materials: number; labor: number }> = {
+    GOOD:        { materials: 0, labor: 0 },
+    GOOD_PLUS:   { materials: 0, labor: 0 },
+    BETTER:      { materials: 0, labor: 0 },
+    BETTER_PLUS: { materials: 0, labor: 0 },
+    BEST:        { materials: 0, labor: 0 },
+    BEST_PLUS:   { materials: 0, labor: 0 },
   };
+  let cumMat = 0, cumLab = 0;
+  for (const t of TIER_ORDER) {
+    cumMat += totals[t].materials;
+    cumLab += totals[t].labor;
+    result[t] = { materials: cumMat, labor: cumLab };
+  }
+  return result;
 }
 
-export default async function PrintPage({ params }: PageProps) {
+export default async function PrintPage({ params, searchParams }: PageProps) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
   const { id } = await params;
+  const sp = await searchParams;
+  // packages=0 means the user explicitly toggled it off; otherwise auto-enable when tiers differ
+  const packagesForced = sp.packages === "0" ? false : sp.packages === "1" ? true : null;
 
   const estimate = await prisma.estimate.findUnique({
     where: { id },
@@ -76,7 +104,7 @@ export default async function PrintPage({ params }: PageProps) {
   const isAdmin = session.user.role === "ADMIN";
   if (!isAdmin && estimate.userId !== session.user.id) notFound();
 
-  const items = estimate.items as EstimateItem[];
+  const items = estimate.items.map((i) => ({ ...i, packages: i.packages ?? "good,better,best" })) as EstimateItem[];
 
   const tierTotals = calcTierTotals(items);
   const cumul = calcCumulative(tierTotals);
@@ -94,11 +122,63 @@ export default async function PrintPage({ params }: PageProps) {
     day: "numeric",
   });
 
-  const tierConfigs: { tier: Tier; label: string; color: string; bg: string }[] = [
-    { tier: "GOOD", label: "Good", color: "#059669", bg: "#ecfdf5" },
-    { tier: "BETTER", label: "Better", color: "#2563eb", bg: "#eff6ff" },
-    { tier: "BEST", label: "Best", color: "#d97706", bg: "#fffbeb" },
+    // Three client-facing packages (each is cumulative)
+  const PRINT_PACKAGES = [
+    {
+      label: "Good",
+      subLabel: "Base package",
+      color: "#059669",
+      bg: "#ecfdf5",
+      border: "#059669",
+      tiers: ["GOOD", "GOOD_PLUS"] as Tier[],
+    },
+    {
+      label: "Better",
+      subLabel: "Includes Good +",
+      color: "#2563eb",
+      bg: "#eff6ff",
+      border: "#2563eb",
+      tiers: ["GOOD", "GOOD_PLUS", "BETTER", "BETTER_PLUS"] as Tier[],
+    },
+    {
+      label: "Best",
+      subLabel: "Includes Better +",
+      color: "#d97706",
+      bg: "#fffbeb",
+      border: "#d97706",
+      tiers: ["GOOD", "GOOD_PLUS", "BETTER", "BETTER_PLUS", "BEST", "BEST_PLUS"] as Tier[],
+    },
   ];
+
+  const packageTotals = PRINT_PACKAGES.map((pkg) => {
+    const key = pkg.label.toLowerCase();
+    const pkgItems = items.filter((i) => (i.packages ?? "good,better,best").split(",").includes(key));
+    const materials = pkgItems.filter((i) => !i.isLabor).reduce((s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
+    const labor     = pkgItems.filter((i) => i.isLabor).reduce( (s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
+    return { ...pkg, materials, labor, total: materials + labor };
+  });
+
+  // Pre-compute print items for client component (sell prices computed server-side)
+  const printItems = items.map((item) => ({
+    id: item.id,
+    description: item.description,
+    quantity: item.quantity,
+    unit: item.unit,
+    sellPrice: sellPrice(item.cost, item.markup),
+    lineTotal: sellPrice(item.cost, item.markup) * item.quantity,
+    tier: item.tier,
+    tierLabel: TIER_PRINT_LABEL[item.tier] ?? item.tier,
+    tierColor: TIER_PRINT_COLOR[item.tier] ?? "#64748b",
+    packages: item.packages ?? "good,better,best",
+    category: item.category,
+    isLabor: item.isLabor,
+  }));
+
+  const [good, better, best] = packageTotals;
+  const isMultiPackage = good.total !== better.total || better.total !== best.total;
+
+  // Auto-enable packages view when tiers differ; user can override with ?packages=0
+  const showPackages = packagesForced !== null ? packagesForced : isMultiPackage;
 
   // Extract plain notes
   const plainNotes = estimate.notes
@@ -122,7 +202,7 @@ export default async function PrintPage({ params }: PageProps) {
       `}</style>
 
       {/* Screen-only controls */}
-      <PrintControls estimateId={id} />
+      <PrintControls estimateId={id} showPackages={showPackages} />
 
       {/* Page wrapper */}
       <div
@@ -144,15 +224,8 @@ export default async function PrintPage({ params }: PageProps) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "32px", borderBottom: "2px solid #1d4ed8", paddingBottom: "20px" }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-                <div style={{ width: "32px", height: "32px", background: "#1d4ed8", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V10.5z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 21V12h6v9" />
-                  </svg>
-                </div>
-                <span style={{ fontSize: "20px", fontWeight: "700", color: "#1d4ed8", letterSpacing: "-0.02em" }}>
-                  Innavik
-                </span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/innavik-logo.png" alt="Innavik" style={{ height: "32px", width: "auto" }} />
               </div>
               <div style={{ color: "#64748b", fontSize: "12px" }}>General Construction · Antioch, IL</div>
             </div>
@@ -187,59 +260,49 @@ export default async function PrintPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* ---- GOOD / BETTER / BEST SUMMARY ---- */}
+          {/* ---- SUMMARY ---- */}
           <div style={{ marginBottom: "32px" }}>
             <div style={{ fontSize: "10px", fontWeight: "600", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
-              Estimate Summary — Good / Better / Best
+              Estimate Summary
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
-              {tierConfigs.map(({ tier, label, color, bg }) => {
-                const c = cumul[tier];
-                const total = c.materials + c.labor;
-                const addLabel = tier === "GOOD" ? "Base package" : tier === "BETTER" ? "Includes Good +" : "Includes Better +";
+
+            {showPackages ? (
+              /* ── Three-package view ──────────────────────────────────────── */
+              <PackageSelector
+                packages={packageTotals.map(({ label, subLabel, color, bg, border, tiers, materials, labor, total }) => ({
+                  label, subLabel, color, bg, border, tiers, materials, labor, total,
+                }))}
+                isMultiPackage={isMultiPackage}
+                items={printItems}
+              />
+            ) : (
+              /* ── Default single-total view ──────────────────────────────── */
+              (() => {
+                const allMaterials = items.filter((i) => !i.isLabor).reduce((s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
+                const allLabor     = items.filter((i) =>  i.isLabor).reduce((s, i) => s + sellPrice(i.cost, i.markup) * i.quantity, 0);
+                const grandTotal   = allMaterials + allLabor;
                 return (
-                  <div key={tier} style={{ border: `1.5px solid ${color}40`, borderRadius: "8px", padding: "16px", background: bg }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                      <span style={{ fontWeight: "700", fontSize: "13px", color }}>{label}</span>
-                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>{addLabel}</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", background: "#f8fafc" }}>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px" }}>Materials</div>
+                      <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(allMaterials)}</div>
                     </div>
-                    <div style={{ marginBottom: "4px", display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                      <span style={{ color: "#64748b" }}>Materials</span>
-                      <span style={{ color: "#334155" }}>{fmt(c.materials)}</span>
+                    <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", background: "#f8fafc" }}>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px" }}>Labor</div>
+                      <div style={{ fontWeight: "700", fontSize: "16px", color: "#0f172a" }}>{fmt(allLabor)}</div>
                     </div>
-                    <div style={{ marginBottom: "8px", display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                      <span style={{ color: "#64748b" }}>Labor</span>
-                      <span style={{ color: "#334155" }}>{fmt(c.labor)}</span>
-                    </div>
-                    <div style={{ borderTop: `1px solid ${color}30`, paddingTop: "8px", display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontWeight: "600", fontSize: "12px", color }}>Total</span>
-                      <span style={{ fontWeight: "700", fontSize: "15px", color }}>{fmt(total)}</span>
+                    <div style={{ gridColumn: "1 / -1", border: "1.5px solid #1d4ed8", borderRadius: "8px", padding: "14px 16px", background: "#eff6ff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: "600", fontSize: "13px", color: "#1e40af" }}>Estimate Total</span>
+                      <span style={{ fontWeight: "800", fontSize: "22px", color: "#1d4ed8" }}>{fmt(grandTotal)}</span>
                     </div>
                   </div>
                 );
-              })}
-            </div>
-
-            {/* Delta callout */}
-            {(["BETTER", "BEST"] as Tier[]).some((t) => tierTotals[t].materials + tierTotals[t].labor > 0) && (
-              <div style={{ marginTop: "8px", display: "flex", gap: "16px" }}>
-                {(["BETTER", "BEST"] as Tier[]).map((tier) => {
-                  const delta = tierTotals[tier].materials + tierTotals[tier].labor;
-                  if (delta === 0) return null;
-                  const cfg = tierConfigs.find((c) => c.tier === tier)!;
-                  return (
-                    <div key={tier} style={{ fontSize: "10px", color: "#64748b" }}>
-                      <span style={{ color: cfg.color, fontWeight: "600" }}>{cfg.label}</span> upgrade adds{" "}
-                      <span style={{ fontWeight: "600" }}>{fmt(delta)}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              })()
             )}
           </div>
 
-          {/* ---- ITEMIZED LINE ITEMS ---- */}
-          {categories.length > 0 && (
+          {/* ---- ITEMIZED LINE ITEMS (hidden in packages mode — PackageSelector renders filtered version) ---- */}
+          {!showPackages && categories.length > 0 && (
             <div style={{ marginBottom: "24px" }}>
               <div style={{ fontSize: "10px", fontWeight: "600", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "14px" }}>
                 Itemized Breakdown
@@ -284,8 +347,8 @@ export default async function PrintPage({ params }: PageProps) {
                               {materialItems.map((item, idx) => {
                                 const sell = sellPrice(item.cost, item.markup);
                                 const lineTotal = sell * item.quantity;
-                                const tierColor = item.tier === "GOOD" ? "#059669" : item.tier === "BETTER" ? "#2563eb" : "#d97706";
-                                const tierLabel = item.tier === "GOOD" ? "Good" : item.tier === "BETTER" ? "Better" : "Best";
+                                const tierColor = TIER_PRINT_COLOR[item.tier] ?? "#64748b";
+                                const tierLabel = TIER_PRINT_LABEL[item.tier] ?? item.tier;
                                 return (
                                   <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9", background: idx % 2 === 0 ? "white" : "#fafafa" }}>
                                     <td style={{ padding: "5px 12px", color: "#0f172a" }}>{item.description}</td>
@@ -317,8 +380,8 @@ export default async function PrintPage({ params }: PageProps) {
                               {laborItems.map((item, idx) => {
                                 const sell = sellPrice(item.cost, item.markup);
                                 const lineTotal = sell * item.quantity;
-                                const tierColor = item.tier === "GOOD" ? "#059669" : item.tier === "BETTER" ? "#2563eb" : "#d97706";
-                                const tierLabel = item.tier === "GOOD" ? "Good" : item.tier === "BETTER" ? "Better" : "Best";
+                                const tierColor = TIER_PRINT_COLOR[item.tier] ?? "#64748b";
+                                const tierLabel = TIER_PRINT_LABEL[item.tier] ?? item.tier;
                                 return (
                                   <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9", background: idx % 2 === 0 ? "white" : "#fafafa" }}>
                                     <td style={{ padding: "5px 12px", color: "#0f172a" }}>{item.description}</td>

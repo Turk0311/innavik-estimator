@@ -1,13 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
+
+// ---------------------------------------------------------------------------
+// All product categories that contain labor rates
+// ---------------------------------------------------------------------------
+const LABOR_CATEGORIES = ["Labor", "Roofing Labor"] as const;
+type LaborCategory = (typeof LABOR_CATEGORIES)[number];
 
 const LABOR_UNITS = ["hr", "sq", "ea", "lf", "sqf"] as const;
-type LaborUnit = (typeof LABOR_UNITS)[number];
 
 interface LaborItem {
   id: string;
   name: string;
+  category: string;
   unit: string;
   cost: number;
   subCategory: string | null;
@@ -17,7 +23,8 @@ interface LaborItem {
 
 interface FormState {
   name: string;
-  unit: LaborUnit | string;
+  category: LaborCategory;
+  unit: string;
   cost: string;
   markup: string;
   subCategory: string;
@@ -26,6 +33,7 @@ interface FormState {
 
 const emptyForm: FormState = {
   name: "",
+  category: "Labor",
   unit: "hr",
   cost: "",
   markup: "30",
@@ -33,11 +41,11 @@ const emptyForm: FormState = {
   active: true,
 };
 
-// Markup is stored in subCategory as "__markup__:XX" for now, or derived from a naming convention.
-// Since the Product model has no markup field, we encode it in subCategory: "__markup__:30"
-function parseMarkup(subCategory: string | null): number {
-  if (!subCategory) return 30;
-  const match = subCategory.match(/__markup__:(\d+(?:\.\d+)?)/);
+// Markup is encoded in subCategory for "Labor" items as "__markup__:XX"
+function parseMarkup(item: LaborItem): number {
+  if (item.category !== "Labor") return 30;
+  if (!item.subCategory) return 30;
+  const match = item.subCategory.match(/__markup__:(\d+(?:\.\d+)?)/);
   return match ? parseFloat(match[1]) : 30;
 }
 
@@ -51,10 +59,19 @@ function displaySubCategory(subCategory: string | null): string {
   return subCategory.replace(/__markup__:\d+(?:\.\d+)?/g, "").trim();
 }
 
+function getSubDisplay(item: LaborItem): string {
+  return item.category === "Labor"
+    ? displaySubCategory(item.subCategory)
+    : (item.subCategory ?? "");
+}
+
 export default function LaborClient() {
   const [items, setItems] = useState<LaborItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Category tab filter
+  const [activeTab, setActiveTab] = useState<LaborCategory | "All">("All");
 
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -71,10 +88,15 @@ export default function LaborClient() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/admin/products?category=Labor&active=true");
-      if (!res.ok) throw new Error("Failed to load labor rates");
-      const data = await res.json();
-      setItems(data);
+      // Fetch all labor-related categories in parallel
+      const results = await Promise.all(
+        LABOR_CATEGORIES.map((cat) =>
+          fetch(`/api/admin/products?category=${encodeURIComponent(cat)}&active=true`)
+            .then((r) => r.json() as Promise<LaborItem[]>)
+        )
+      );
+      // Merge and preserve category order
+      setItems(results.flat());
     } catch {
       setError("Failed to load labor rates. Please try again.");
     } finally {
@@ -86,23 +108,41 @@ export default function LaborClient() {
     fetchItems();
   }, [fetchItems]);
 
+  const filteredItems = useMemo(() => {
+    if (activeTab === "All") return items;
+    return items.filter((i) => i.category === activeTab);
+  }, [items, activeTab]);
+
+  // Count per category for tab badges
+  const countByCategory = useMemo(() => {
+    const map: Record<string, number> = { All: items.length };
+    for (const cat of LABOR_CATEGORIES) {
+      map[cat] = items.filter((i) => i.category === cat).length;
+    }
+    return map;
+  }, [items]);
+
   function openAdd() {
     setEditingItem(null);
-    setForm(emptyForm);
+    const defaultCat: LaborCategory =
+      activeTab === "All" ? "Labor" : activeTab;
+    setForm({ ...emptyForm, category: defaultCat });
     setFormError("");
     setModalOpen(true);
   }
 
   function openEdit(item: LaborItem) {
     setEditingItem(item);
-    const markup = parseMarkup(item.subCategory);
-    const sub = displaySubCategory(item.subCategory);
+    const markup = parseMarkup(item);
     setForm({
       name: item.name,
+      category: (LABOR_CATEGORIES.includes(item.category as LaborCategory)
+        ? item.category
+        : "Labor") as LaborCategory,
       unit: item.unit,
       cost: String(item.cost),
       markup: String(markup),
-      subCategory: sub,
+      subCategory: getSubDisplay(item),
       active: item.active,
     });
     setFormError("");
@@ -134,10 +174,16 @@ export default function LaborClient() {
 
     setSaving(true);
     try {
+      // Only encode markup into subCategory for the "Labor" category
+      const subCategoryValue =
+        form.category === "Labor"
+          ? encodeSubCategory(form.subCategory, markupNum)
+          : form.subCategory.trim() || null;
+
       const payload = {
         name: form.name.trim(),
-        category: "Labor",
-        subCategory: encodeSubCategory(form.subCategory, markupNum),
+        category: form.category,
+        subCategory: subCategoryValue,
         cost: costNum,
         unit: form.unit,
         tier: "GOOD",
@@ -195,13 +241,31 @@ export default function LaborClient() {
     }
   }
 
+  const tabCls = (tab: LaborCategory | "All") =>
+    `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+      activeTab === tab
+        ? "bg-blue-600 text-white"
+        : "text-slate-400 hover:text-white hover:bg-slate-700"
+    }`;
+
   return (
     <>
       {/* Actions bar */}
-      <div className="flex items-center justify-between mb-5">
-        <p className="text-sm text-slate-400">
-          {items.length} labor line item{items.length !== 1 ? "s" : ""}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        {/* Category tabs */}
+        <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1">
+          <button className={tabCls("All")} onClick={() => setActiveTab("All")}>
+            All
+            <span className="ml-1.5 text-xs opacity-70">({countByCategory["All"] ?? 0})</span>
+          </button>
+          {LABOR_CATEGORIES.map((cat) => (
+            <button key={cat} className={tabCls(cat)} onClick={() => setActiveTab(cat)}>
+              {cat}
+              <span className="ml-1.5 text-xs opacity-70">({countByCategory[cat] ?? 0})</span>
+            </button>
+          ))}
+        </div>
+
         <button
           onClick={openAdd}
           className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
@@ -223,9 +287,9 @@ export default function LaborClient() {
       <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
         {loading ? (
           <div className="px-6 py-16 text-center text-slate-400 text-sm">Loading labor rates...</div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="px-6 py-16 text-center text-slate-400 text-sm">
-            No labor rates yet. Add your first one.
+            No labor rates found.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -233,6 +297,9 @@ export default function LaborClient() {
               <thead>
                 <tr className="border-b border-slate-700 bg-slate-900/50">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Name</th>
+                  {activeTab === "All" && (
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Category</th>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Unit</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Cost</th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Markup %</th>
@@ -242,42 +309,59 @@ export default function LaborClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {items.map((item) => {
-                  const markup = parseMarkup(item.subCategory);
+                {filteredItems.map((item, idx) => {
+                  const markup = parseMarkup(item);
                   const sellPrice = item.cost * (1 + markup / 100);
+                  // Show category header row when "All" tab is active and category changes
+                  const prevCat = idx > 0 ? filteredItems[idx - 1].category : null;
+                  const showCatHeader = activeTab === "All" && item.category !== prevCat;
                   return (
-                    <tr key={item.id} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="px-4 py-3 text-white font-medium">{item.name}</td>
-                      <td className="px-4 py-3 text-slate-300 font-mono text-xs">{item.unit}</td>
-                      <td className="px-4 py-3 text-right text-white font-mono">
-                        ${item.cost.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-300 font-mono">
-                        {markup.toFixed(0)}%
-                      </td>
-                      <td className="px-4 py-3 text-right text-emerald-400 font-mono font-semibold">
-                        ${sellPrice.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-block w-2 h-2 rounded-full ${item.active ? "bg-emerald-400" : "bg-slate-600"}`} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => openEdit(item)}
-                            className="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors px-2 py-1 rounded hover:bg-blue-900/30"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(item)}
-                            className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors px-2 py-1 rounded hover:bg-red-900/30"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                    <Fragment key={item.id}>
+                      {showCatHeader && (
+                        <tr className="bg-slate-900/60">
+                          <td colSpan={8} className="px-4 py-2">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                              {item.category}
+                            </span>
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="hover:bg-slate-700/30 transition-colors">
+                        <td className="px-4 py-3 text-white font-medium">{item.name}</td>
+                        {activeTab === "All" && (
+                          <td className="px-4 py-3 text-slate-500 text-xs">{item.category}</td>
+                        )}
+                        <td className="px-4 py-3 text-slate-300 font-mono text-xs">{item.unit}</td>
+                        <td className="px-4 py-3 text-right text-white font-mono">
+                          ${item.cost.toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-300 font-mono">
+                          {markup.toFixed(0)}%
+                        </td>
+                        <td className="px-4 py-3 text-right text-emerald-400 font-mono font-semibold">
+                          ${sellPrice.toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-block w-2 h-2 rounded-full ${item.active ? "bg-emerald-400" : "bg-slate-600"}`} />
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => openEdit(item)}
+                              className="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors px-2 py-1 rounded hover:bg-blue-900/30"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(item)}
+                              className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors px-2 py-1 rounded hover:bg-red-900/30"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -286,10 +370,9 @@ export default function LaborClient() {
         )}
       </div>
 
-      <div className="mt-3 p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-xs text-slate-400">
-        <strong className="text-slate-300">Note:</strong> Labor items use the Products table with category set to &quot;Labor&quot;.
-        Sell Price is automatically calculated as Cost &times; (1 + Markup%).
-      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        {filteredItems.length} rate{filteredItems.length !== 1 ? "s" : ""} shown
+      </p>
 
       {/* Add/Edit Modal */}
       {modalOpen && (
@@ -317,6 +400,21 @@ export default function LaborClient() {
                 </div>
               )}
 
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">Category</label>
+                <select
+                  value={form.category}
+                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as LaborCategory }))}
+                  className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {LABOR_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">
                   Name <span className="text-red-400">*</span>

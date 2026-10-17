@@ -52,6 +52,7 @@ export async function GET(request: Request) {
       subCategory: true,
       supplier: true,
       tier: true,
+      packages: true,
     },
   });
 

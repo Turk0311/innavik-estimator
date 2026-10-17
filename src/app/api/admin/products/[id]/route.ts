@@ -21,7 +21,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { sku, name, category, subCategory, supplier, cost, unit, tier, active } = body;
+  const { sku, name, category, subCategory, supplier, cost, unit, tier, packages, active } = body;
 
   const data: Record<string, unknown> = {};
   if (sku !== undefined) data.sku = sku || null;
@@ -32,6 +32,7 @@ export async function PATCH(
   if (cost !== undefined) data.cost = parseFloat(cost);
   if (unit !== undefined) data.unit = unit;
   if (tier !== undefined) data.tier = tier;
+  if (packages !== undefined) data.packages = packages;
   if (active !== undefined) data.active = Boolean(active);
 
   try {

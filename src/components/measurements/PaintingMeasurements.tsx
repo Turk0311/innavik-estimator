@@ -9,6 +9,8 @@ export interface PaintingData {
   wasteFactor: number
   includesPrimer: boolean
   includesTrim: boolean
+  baseLf: number
+  casingLf: number
 }
 
 interface Props {
@@ -30,6 +32,8 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
     wasteFactor: initialData?.wasteFactor ?? 10,
     includesPrimer: initialData?.includesPrimer ?? false,
     includesTrim: initialData?.includesTrim ?? false,
+    baseLf: initialData?.baseLf ?? 0,
+    casingLf: initialData?.casingLf ?? 0,
   });
 
   function update<K extends keyof PaintingData>(key: K, value: PaintingData[K]) {
@@ -205,6 +209,48 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
             <span className="text-sm text-slate-300">Includes trim painting</span>
           </label>
         </div>
+
+        {data.includesTrim && (
+          <div className="border-t border-slate-700 pt-4 space-y-3">
+            <p className="text-xs text-slate-500">Trim linear footage — billed at $1.50/lf labor</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Base molding (lf)</label>
+                <input
+                  type="number"
+                  value={data.baseLf === 0 ? "" : data.baseLf}
+                  onChange={(e) => update("baseLf", Number(e.target.value) || 0)}
+                  placeholder="0"
+                  min="0"
+                  step="1"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Door & window casing (lf)</label>
+                <input
+                  type="number"
+                  value={data.casingLf === 0 ? "" : data.casingLf}
+                  onChange={(e) => update("casingLf", Number(e.target.value) || 0)}
+                  placeholder="0"
+                  min="0"
+                  step="1"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            {(data.baseLf > 0 || data.casingLf > 0) && (
+              <div className="rounded-lg bg-purple-900/20 border border-purple-800/40 px-4 py-2.5 text-xs text-purple-300">
+                Trim labor: <span className="font-bold">
+                  {(data.baseLf + data.casingLf).toLocaleString()} lf
+                </span> @ $1.50/lf →{" "}
+                <span className="font-bold">
+                  ${((data.baseLf + data.casingLf) * 1.50).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cost
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

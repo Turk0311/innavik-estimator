@@ -34,14 +34,18 @@ model Product {
   subCategory String?
   supplier    String?
   tier        Tier     @default(GOOD)
+  packages    String   @default("good,better,best")
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 }
 
 enum Tier {
   GOOD
+  GOOD_PLUS
   BETTER
+  BETTER_PLUS
   BEST
+  BEST_PLUS
 }
 
 model Assembly {
@@ -54,12 +58,13 @@ model Assembly {
 }
 
 model AssemblyItem {
-  id         String   @id @default(cuid())
-  assembly   Assembly @relation(fields: [assemblyId], references: [id])
-  assemblyId String
-  productId  String
-  quantity   Float
-  unit       String
+  id           String   @id @default(cuid())
+  assembly     Assembly @relation(fields: [assemblyId], references: [id])
+  assemblyId   String
+  productId    String
+  quantity     Float
+  unit         String
+  coverageSqft Float?   // sqft covered by 1 unit; when set, qty = ceil(roomSqft / coverageSqft)
 }
 
 model Estimate {
@@ -99,6 +104,9 @@ model EstimateItem {
   cost        Float
   markup      Float
   tier        Tier
+  packages    String   @default("good,better,best")
   category    String
   isLabor     Boolean  @default(false)
+  sku         String?
+  supplier    String?
 }

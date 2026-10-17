@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import MeasurementsClient from "./MeasurementsClient";
 
 type PageProps = { params: Promise<{ id: string }> };
@@ -39,6 +40,41 @@ export default async function MeasurementsPage({ params }: PageProps) {
 
   const scopes = extractScopes(estimate.notes);
 
+  // Load General Labor assemblies with product names for the live preview in GeneralLaborMeasurements
+  const rawLaborAssemblies = await prisma.assembly.findMany({
+    where: { tradeType: "General Labor" },
+    select: { name: true, items: { select: { productId: true, quantity: true, unit: true, coverageSqft: true } } },
+  });
+  const laborProductIds = [...new Set(rawLaborAssemblies.flatMap((a) => a.items.map((i) => i.productId)))];
+  const laborProducts = laborProductIds.length > 0
+    ? await prisma.product.findMany({ where: { id: { in: laborProductIds } }, select: { id: true, name: true } })
+    : [];
+  const lpNameMap = new Map(laborProducts.map((p) => [p.id, p.name]));
+  const laborAssemblies = rawLaborAssemblies.map((a) => ({
+    name: a.name,
+    items: a.items.map((i) => ({
+      productName: lpNameMap.get(i.productId) ?? i.productId,
+      quantity: i.quantity,
+      unit: i.unit,
+      coverageSqft: i.coverageSqft,
+    })),
+  }));
+
+  const deckProducts = await prisma.product.findMany({
+    where: {
+      active: true,
+      OR: [
+        { category: { in: ["Decking", "Deck", "TT Decking"] } },
+        // TimberTech collection subCategories: "Prime Collection", "Vintage Collection", etc.
+        { subCategory: { contains: "Collection", mode: "insensitive" } },
+        { subCategory: { contains: "CedarTone", mode: "insensitive" } },
+        { subCategory: { contains: "Pressure Treated", mode: "insensitive" } },
+      ],
+    },
+    select: { id: true, name: true, cost: true, unit: true, subCategory: true },
+    orderBy: [{ subCategory: "asc" }, { name: "asc" }],
+  });
+
   // Serialize measurements data for client
   const savedMeasurements = estimate.measurements.map((m) => ({
     id: m.id,
@@ -55,11 +91,8 @@ export default async function MeasurementsPage({ params }: PageProps) {
             href="/dashboard"
             className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors"
           >
-            <div className="w-7 h-7 bg-blue-600 rounded-md flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V10.5z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 21V12h6v9" />
-              </svg>
+            <div className="bg-white rounded-md px-1.5 py-1">
+              <Image src="/innavik-logo.png" alt="Innavik" width={2340} height={564} className="h-4 w-auto" />
             </div>
             <span className="text-sm font-medium hidden sm:inline">Innavik</span>
           </Link>
@@ -129,6 +162,8 @@ export default async function MeasurementsPage({ params }: PageProps) {
             estimateId={id}
             scopes={scopes}
             savedMeasurements={savedMeasurements}
+            deckProducts={deckProducts}
+            laborAssemblies={laborAssemblies}
           />
         )}
       </main>

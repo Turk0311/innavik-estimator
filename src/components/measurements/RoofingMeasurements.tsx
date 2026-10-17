@@ -3,7 +3,9 @@
 import { useState } from "react";
 
 export interface PlaneEntry { id: string; label: string; area: number }
+export type RoofJobType = "rr" | "new" | "layover"
 export interface RoofingData {
+  jobType: RoofJobType
   planes: PlaneEntry[]
   wasteFactor: number
   pitch: string
@@ -13,15 +15,34 @@ export interface RoofingData {
   valleys: number
   rakes: number
   eaves: number
+  ridgeVentLf: number
   chimneys: number
   skylights: number
   powerVents: number
+  leadStacks3: number
+  leadStacks4: number
+  leadStacks5: number
+  leadStacks6: number
+  slantBackVents: number
+  kitchenVents: number
+  bathroomVents: number
+  roofToWallLf: number
+  shingleRepairs: number
+  miscQty: number
+  miscCost: number
+  roofingCharge: number
 }
 
 interface Props {
   initialData?: Partial<RoofingData>;
   onChange: (data: RoofingData) => void;
 }
+
+const JOB_TYPES: { value: RoofJobType; label: string }[] = [
+  { value: "rr", label: "R&R" },
+  { value: "new", label: "New Construction" },
+  { value: "layover", label: "Layover" },
+];
 
 const PITCH_OPTIONS = [
   { value: "up_to_6_12", label: "Up to 6/12" },
@@ -64,6 +85,7 @@ function SmallField({
 
 export default function RoofingMeasurements({ initialData, onChange }: Props) {
   const [data, setData] = useState<RoofingData>({
+    jobType: initialData?.jobType ?? "rr",
     planes: initialData?.planes ?? [newPlane()],
     wasteFactor: initialData?.wasteFactor ?? 15,
     pitch: initialData?.pitch ?? "up_to_6_12",
@@ -73,9 +95,22 @@ export default function RoofingMeasurements({ initialData, onChange }: Props) {
     valleys: initialData?.valleys ?? 0,
     rakes: initialData?.rakes ?? 0,
     eaves: initialData?.eaves ?? 0,
+    ridgeVentLf: initialData?.ridgeVentLf ?? 0,
     chimneys: initialData?.chimneys ?? 0,
     skylights: initialData?.skylights ?? 0,
     powerVents: initialData?.powerVents ?? 0,
+    leadStacks3: initialData?.leadStacks3 ?? 0,
+    leadStacks4: initialData?.leadStacks4 ?? 0,
+    leadStacks5: initialData?.leadStacks5 ?? 0,
+    leadStacks6: initialData?.leadStacks6 ?? 0,
+    slantBackVents: initialData?.slantBackVents ?? 0,
+    kitchenVents: initialData?.kitchenVents ?? 0,
+    bathroomVents: initialData?.bathroomVents ?? 0,
+    roofToWallLf: initialData?.roofToWallLf ?? 0,
+    shingleRepairs: initialData?.shingleRepairs ?? 0,
+    miscQty: initialData?.miscQty ?? 0,
+    miscCost: initialData?.miscCost ?? 100,
+    roofingCharge: initialData?.roofingCharge ?? 500,
   });
 
   function update<K extends keyof RoofingData>(key: K, value: RoofingData[K]) {
@@ -193,6 +228,24 @@ export default function RoofingMeasurements({ initialData, onChange }: Props) {
       {/* Pitch, Layers, Waste */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Roof Details</h3>
+        <div>
+          <label className={labelCls}>Job Type</label>
+          <div className="flex flex-wrap gap-2">
+            {JOB_TYPES.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => update("jobType", t.value)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  data.jobType === t.value
+                    ? "bg-blue-600 border-blue-500 text-white"
+                    : "border-slate-600 text-slate-400 hover:text-white hover:border-slate-500"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div>
             <label className={labelCls}>Pitch</label>
@@ -206,7 +259,9 @@ export default function RoofingMeasurements({ initialData, onChange }: Props) {
               ))}
             </select>
           </div>
-          <SmallField label="Layers" unit="tear-off" value={data.layers} onChange={(v) => update("layers", v)} min="1" />
+          {data.jobType === "rr" && (
+            <SmallField label="Layers" unit="tear-off" value={data.layers} onChange={(v) => update("layers", v)} min="1" />
+          )}
           <SmallField label="Waste Factor" unit="%" value={data.wasteFactor} onChange={(v) => update("wasteFactor", v)} />
         </div>
       </div>
@@ -224,12 +279,55 @@ export default function RoofingMeasurements({ initialData, onChange }: Props) {
       </div>
 
       {/* Accessories */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-5">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Accessories</h3>
+
+        {/* Ridge Vent linear footage — separate from ridge length */}
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500 font-medium">Linear Footage</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <SmallField label="Ridge Vent" unit="lf" value={data.ridgeVentLf} onChange={(v) => update("ridgeVentLf", v)} />
+            <SmallField label="Roof to Wall" unit="lf" value={data.roofToWallLf} onChange={(v) => update("roofToWallLf", v)} />
+          </div>
+        </div>
+
+        {/* Penetrations */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <SmallField label="Chimneys" unit="count" value={data.chimneys} onChange={(v) => update("chimneys", v)} />
           <SmallField label="Skylights" unit="count" value={data.skylights} onChange={(v) => update("skylights", v)} />
           <SmallField label="Power Vents" unit="count" value={data.powerVents} onChange={(v) => update("powerVents", v)} />
+        </div>
+
+        {/* Lead stacks */}
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500 font-medium">Lead Stacks (by size)</p>
+          <div className="grid grid-cols-4 gap-3">
+            <SmallField label='3"' unit="count" value={data.leadStacks3} onChange={(v) => update("leadStacks3", v)} />
+            <SmallField label='4"' unit="count" value={data.leadStacks4} onChange={(v) => update("leadStacks4", v)} />
+            <SmallField label='5"' unit="count" value={data.leadStacks5} onChange={(v) => update("leadStacks5", v)} />
+            <SmallField label='6"' unit="count" value={data.leadStacks6} onChange={(v) => update("leadStacks6", v)} />
+          </div>
+        </div>
+
+        {/* Vents */}
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500 font-medium">Vents</p>
+          <div className="grid grid-cols-3 gap-4">
+            <SmallField label="Slant Back Vents" unit="count" value={data.slantBackVents} onChange={(v) => update("slantBackVents", v)} />
+            <SmallField label="Kitchen Broan 634" unit="count" value={data.kitchenVents} onChange={(v) => update("kitchenVents", v)} />
+            <SmallField label="Bathroom Broan 636" unit="count" value={data.bathroomVents} onChange={(v) => update("bathroomVents", v)} />
+          </div>
+        </div>
+      </div>
+
+      {/* Repairs & Misc */}
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Repairs &amp; Misc</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <SmallField label="Shingle Repair <1 bdl" unit="count" value={data.shingleRepairs} onChange={(v) => update("shingleRepairs", v)} />
+          <SmallField label="Misc" unit="qty" value={data.miscQty} onChange={(v) => update("miscQty", v)} />
+          <SmallField label="Misc" unit="$ each" value={data.miscCost} onChange={(v) => update("miscCost", v)} step="0.01" />
+          <SmallField label="Roofing Charge" unit="$" value={data.roofingCharge} onChange={(v) => update("roofingCharge", v)} step="0.01" />
         </div>
       </div>
     </div>

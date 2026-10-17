@@ -1,28 +1,85 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
-const CATEGORIES = [
-  "Roofing",
-  "Siding",
-  "Interior",
-  "Kitchen",
-  "Bathroom",
-  "Demo",
-  "Painting",
-  "Flooring",
-  "Decking",
-  "Fence",
-  "General Labor",
-  "Accessory",
-  "Cedar Lumber",
-  "Bath",
-  "Adhesive",
-  "Custom",
-];
+// ---------------------------------------------------------------------------
+// CSV helpers (runs in the browser — no extra deps)
+// ---------------------------------------------------------------------------
 
-const TIERS = ["GOOD", "BETTER", "BEST"] as const;
+function parseCSVRow(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current); current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+// Map flexible column header names → canonical keys
+const COL_MAP: Record<string, string> = {
+  "name": "name", "product name": "name", "product": "name",
+  "sku": "sku", "item #": "sku", "item number": "sku",
+  "category": "category", "cat": "category",
+  "subcategory": "subcategory", "sub category": "subcategory",
+  "sub-category": "subcategory", "collection": "subcategory",
+  "supplier": "supplier", "vendor": "supplier",
+  "cost": "cost", "price": "cost", "unit cost": "cost", "unit price": "cost",
+  "unit": "unit", "uom": "unit",
+  "tier": "tier",
+  "active": "active",
+};
+
+function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 1) return [];
+  const firstRow = parseCSVRow(lines[0]);
+  const firstCell = firstRow[0]?.trim().toLowerCase() ?? '';
+  // If the first cell matches a known header alias, treat row 0 as headers.
+  // Otherwise fall back to positional mapping: col 0 = name, col 1 = cost.
+  const hasHeaders = Object.prototype.hasOwnProperty.call(COL_MAP, firstCell);
+  const headers = hasHeaders
+    ? firstRow.map((h) => COL_MAP[h.trim().toLowerCase()] ?? h.trim().toLowerCase())
+    : ['name', 'cost'];
+  return lines
+    .slice(hasHeaders ? 1 : 0)
+    .map((line) => {
+      const values = parseCSVRow(line);
+      const row: Record<string, string> = {};
+      headers.forEach((h, i) => { row[h] = values[i]?.trim() ?? ""; });
+      return row;
+    })
+    .filter((row) => Object.values(row).some((v) => v));
+}
+
+
+const TIERS = ["GOOD", "GOOD_PLUS", "BETTER", "BETTER_PLUS", "BEST", "BEST_PLUS"] as const;
 type Tier = (typeof TIERS)[number];
+
+const PKG_KEYS = ["good", "better", "best"] as const;
+type PkgKey = typeof PKG_KEYS[number];
+const PKG_META: Record<PkgKey, { short: string; active: string; inactive: string }> = {
+  good:   { short: "G", active: "bg-emerald-700 text-emerald-100 border-emerald-600", inactive: "border-slate-600 text-slate-500 hover:border-slate-400" },
+  better: { short: "B", active: "bg-blue-700 text-blue-100 border-blue-600",          inactive: "border-slate-600 text-slate-500 hover:border-slate-400" },
+  best:   { short: "★", active: "bg-amber-700 text-amber-100 border-amber-600",       inactive: "border-slate-600 text-slate-500 hover:border-slate-400" },
+};
+function pkgsFromString(s: string): Set<PkgKey> {
+  const set = new Set<PkgKey>();
+  for (const p of s.split(",")) { const t = p.trim() as PkgKey; if (PKG_KEYS.includes(t)) set.add(t); }
+  return set;
+}
+function pkgsToString(set: Set<PkgKey>): string {
+  return PKG_KEYS.filter((k) => set.has(k)).join(",") || "good";
+}
 
 interface Product {
   id: string;
@@ -34,6 +91,7 @@ interface Product {
   cost: number;
   unit: string;
   tier: Tier;
+  packages: string;
   active: boolean;
   createdAt: string;
 }
@@ -47,37 +105,88 @@ interface FormState {
   cost: string;
   unit: string;
   tier: Tier;
+  packages: string;
   active: boolean;
 }
 
 const emptyForm: FormState = {
   sku: "",
   name: "",
-  category: CATEGORIES[0],
+  category: "",
   subCategory: "",
   supplier: "",
   cost: "",
   unit: "",
   tier: "GOOD",
+  packages: "good,better,best",
   active: true,
 };
 
 const tierLabel: Record<Tier, string> = {
-  GOOD: "Good",
-  BETTER: "Better",
-  BEST: "Best",
+  GOOD:        "Good",
+  GOOD_PLUS:   "Good+",
+  BETTER:      "Better",
+  BETTER_PLUS: "Better+",
+  BEST:        "Best",
+  BEST_PLUS:   "Best+",
 };
 
 const tierColor: Record<Tier, string> = {
-  GOOD: "bg-slate-700 text-slate-300",
-  BETTER: "bg-blue-900/60 text-blue-300",
-  BEST: "bg-amber-900/60 text-amber-300",
+  GOOD:        "bg-emerald-900/60 text-emerald-300",
+  GOOD_PLUS:   "bg-green-900/60   text-green-300",
+  BETTER:      "bg-blue-900/60    text-blue-300",
+  BETTER_PLUS: "bg-sky-900/60     text-sky-300",
+  BEST:        "bg-amber-900/60   text-amber-300",
+  BEST_PLUS:   "bg-orange-900/60  text-orange-300",
 };
+
+// ---------------------------------------------------------------------------
+// Assemblies (for the "Add to Assembly" section of the product modal)
+// ---------------------------------------------------------------------------
+
+interface AssemblySummary {
+  id: string;
+  name: string;
+  tradeType: string;
+}
+
+const ASSEMBLY_TRADE_TYPES = [
+  "Roofing",
+  "Siding",
+  "Siding Accessories",
+  "Exterior Trim",
+  "Exterior Trim Accessories",
+  "Interior Trim",
+  "Interior Trim Accessories",
+  "Wall Assembly",
+  "Wall Accessories",
+  "Windows/Doors",
+  "Insulation",
+  "Insulation Accessories",
+  "Drywall",
+  "Drywall Accessories",
+  "Flooring",
+  "Flooring Accessories",
+  "Tile",
+  "Bathroom",
+  "Kitchen",
+  "Countertops",
+  "Painting",
+  "Plumbing/Electrical",
+  "Gutters",
+  "Decking",
+  "Decking Accessories",
+  "Deck Framing",
+  "Deck Framing Accessories",
+  "Demo",
+  "General Labor",
+];
 
 export default function ProductsClient() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [categories, setCategories] = useState<string[]>([]);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -92,9 +201,25 @@ export default function ProductsClient() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
+  // Add to Assembly
+  const [assemblies, setAssemblies] = useState<AssemblySummary[]>([]);
+  const [addToAssembly, setAddToAssembly] = useState(false);
+  const [assemblyMode, setAssemblyMode] = useState<"existing" | "new">("existing");
+  const [selectedAssemblyId, setSelectedAssemblyId] = useState("");
+  const [newAssemblyName, setNewAssemblyName] = useState("");
+  const [newAssemblyTradeType, setNewAssemblyTradeType] = useState("");
+  const [assemblyQty, setAssemblyQty] = useState("1");
+  const [assemblyUnit, setAssemblyUnit] = useState("");
+
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // CSV import
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [csvPreview, setCsvPreview] = useState<Record<string, string>[] | null>(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvResult, setCsvResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -120,6 +245,24 @@ export default function ProductsClient() {
     fetchProducts();
   }, [fetchProducts]);
 
+  // Load distinct categories once on mount
+  useEffect(() => {
+    fetch("/api/admin/products?distinct=category")
+      .then((r) => r.json())
+      .then((data: string[]) => setCategories(data))
+      .catch(() => {});
+  }, []);
+
+  // Load assemblies once on mount (for "Add to Assembly" picker)
+  useEffect(() => {
+    fetch("/api/admin/assemblies")
+      .then((r) => r.json())
+      .then((data: { id: string; name: string; tradeType: string }[]) =>
+        setAssemblies(data.map((a) => ({ id: a.id, name: a.name, tradeType: a.tradeType })))
+      )
+      .catch(() => {});
+  }, []);
+
   const filtered = products.filter((p) => {
     if (!searchTerm) return true;
     const q = searchTerm.toLowerCase();
@@ -132,10 +275,21 @@ export default function ProductsClient() {
     );
   });
 
+  function resetAssemblyFields() {
+    setAddToAssembly(false);
+    setAssemblyMode("existing");
+    setSelectedAssemblyId("");
+    setNewAssemblyName("");
+    setNewAssemblyTradeType("");
+    setAssemblyQty("1");
+    setAssemblyUnit("");
+  }
+
   function openAdd() {
     setEditingProduct(null);
     setForm(emptyForm);
     setFormError("");
+    resetAssemblyFields();
     setModalOpen(true);
   }
 
@@ -150,9 +304,11 @@ export default function ProductsClient() {
       cost: String(product.cost),
       unit: product.unit,
       tier: product.tier,
+      packages: product.packages ?? "good,better,best",
       active: product.active,
     });
     setFormError("");
+    resetAssemblyFields();
     setModalOpen(true);
   }
 
@@ -160,6 +316,7 @@ export default function ProductsClient() {
     setModalOpen(false);
     setEditingProduct(null);
     setFormError("");
+    resetAssemblyFields();
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -177,6 +334,17 @@ export default function ProductsClient() {
       return;
     }
 
+    if (addToAssembly) {
+      if (assemblyMode === "existing" && !selectedAssemblyId) {
+        setFormError("Select an assembly to add this product to, or switch to \"New Assembly\".");
+        return;
+      }
+      if (assemblyMode === "new" && (!newAssemblyName.trim() || !newAssemblyTradeType)) {
+        setFormError("Enter a name and trade type for the new assembly.");
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -188,6 +356,7 @@ export default function ProductsClient() {
         cost: costNum,
         unit: form.unit.trim(),
         tier: form.tier,
+        packages: form.packages || "good,better,best",
         active: form.active,
       };
 
@@ -210,6 +379,47 @@ export default function ProductsClient() {
         const err = await res.json();
         setFormError(err.error ?? "Failed to save product.");
         return;
+      }
+
+      const savedProduct: Product = await res.json();
+
+      // Optionally attach this product to an assembly as a line item
+      if (addToAssembly) {
+        const qty = parseFloat(assemblyQty);
+        const unit = assemblyUnit.trim() || payload.unit;
+
+        if (assemblyMode === "existing") {
+          const itemRes = await fetch(`/api/admin/assemblies/${selectedAssemblyId}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              productId: savedProduct.id,
+              quantity: isNaN(qty) ? 1 : qty,
+              unit,
+            }),
+          });
+          if (!itemRes.ok) {
+            const err = await itemRes.json();
+            setError(`Product saved, but failed to add it to the assembly: ${err.error ?? "unknown error"}`);
+          }
+        } else {
+          const asmRes = await fetch("/api/admin/assemblies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: newAssemblyName.trim(),
+              tradeType: newAssemblyTradeType,
+              items: [{ productId: savedProduct.id, quantity: isNaN(qty) ? 1 : qty, unit }],
+            }),
+          });
+          if (!asmRes.ok) {
+            const err = await asmRes.json();
+            setError(`Product saved, but failed to create the assembly: ${err.error ?? "unknown error"}`);
+          } else {
+            const newAsm = await asmRes.json();
+            setAssemblies((prev) => [...prev, { id: newAsm.id, name: newAsm.name, tradeType: newAsm.tradeType }]);
+          }
+        }
       }
 
       closeModal();
@@ -242,6 +452,42 @@ export default function ProductsClient() {
     }
   }
 
+  function handleCSVFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCSV(text);
+      setCsvPreview(rows);
+      setCsvResult(null);
+    };
+    reader.readAsText(file);
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+  }
+
+  async function handleCSVImport() {
+    if (!csvPreview) return;
+    setCsvImporting(true);
+    try {
+      const res = await fetch("/api/admin/products/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: csvPreview }),
+      });
+      const result = await res.json();
+      setCsvResult(result);
+      setCsvPreview(null);
+      fetchProducts();
+    } catch {
+      setCsvResult({ created: 0, updated: 0, errors: ["Network error — import failed."] });
+      setCsvPreview(null);
+    } finally {
+      setCsvImporting(false);
+    }
+  }
+
   return (
     <>
       {/* Filters */}
@@ -259,7 +505,7 @@ export default function ProductsClient() {
           className="rounded-lg bg-slate-900 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">All Categories</option>
-          {CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
@@ -282,15 +528,34 @@ export default function ProductsClient() {
           <option value="false">Inactive</option>
           <option value="">All</option>
         </select>
-        <button
-          onClick={openAdd}
-          className="ml-auto inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Add Product
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {/* Hidden file input */}
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleCSVFileChange}
+          />
+          <button
+            onClick={() => csvInputRef.current?.click()}
+            className="inline-flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold px-4 py-2 rounded-lg text-sm transition-colors border border-slate-600"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            Import CSV
+          </button>
+          <button
+            onClick={openAdd}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Add Product
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -435,7 +700,8 @@ export default function ProductsClient() {
                     onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
                     className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {CATEGORIES.map((c) => (
+                    <option value="">Select category…</option>
+                    {categories.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -506,6 +772,39 @@ export default function ProductsClient() {
                 </div>
               </div>
 
+              {/* Package assignment — which G/B/★ packages this product belongs to by default */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Default Packages</label>
+                <div className="flex items-center gap-2">
+                  {PKG_KEYS.map((key) => {
+                    const m = PKG_META[key];
+                    const active = pkgsFromString(form.packages).has(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          const current = pkgsFromString(form.packages);
+                          if (current.has(key) && current.size <= 1) return;
+                          const next = new Set(current);
+                          if (next.has(key)) next.delete(key); else next.add(key);
+                          setForm((f) => ({ ...f, packages: pkgsToString(next) }));
+                        }}
+                        className={`px-3 py-1.5 rounded text-xs font-bold border uppercase tracking-wide transition-colors ${active ? m.active : m.inactive}`}
+                      >
+                        {m.short}
+                      </button>
+                    );
+                  })}
+                  <span className="text-xs text-slate-500 ml-2">
+                    {pkgsFromString(form.packages).size === 3 ? "All packages" :
+                     pkgsFromString(form.packages).size === 1 ? `${form.packages} only` :
+                     `${form.packages}`}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">Controls which G/B/★ columns this product appears in when added to an estimate.</p>
+              </div>
+
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -525,6 +824,126 @@ export default function ProductsClient() {
                 </span>
               </div>
 
+              {/* Add to Assembly */}
+              <div className="border-t border-slate-700 pt-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <button
+                    type="button"
+                    onClick={() => setAddToAssembly((v) => !v)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800 ${
+                      addToAssembly ? "bg-blue-600" : "bg-slate-600"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                        addToAssembly ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <span className="text-sm font-medium text-slate-300">
+                    Add to an assembly
+                  </span>
+                </label>
+
+                {addToAssembly && (
+                  <div className="mt-3 space-y-3 pl-1">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAssemblyMode("existing")}
+                        className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium border transition-colors ${
+                          assemblyMode === "existing"
+                            ? "bg-blue-600 border-blue-600 text-white"
+                            : "bg-slate-900 border-slate-600 text-slate-300 hover:border-slate-500"
+                        }`}
+                      >
+                        Existing Assembly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssemblyMode("new")}
+                        className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium border transition-colors ${
+                          assemblyMode === "new"
+                            ? "bg-blue-600 border-blue-600 text-white"
+                            : "bg-slate-900 border-slate-600 text-slate-300 hover:border-slate-500"
+                        }`}
+                      >
+                        New Assembly
+                      </button>
+                    </div>
+
+                    {assemblyMode === "existing" ? (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Assembly</label>
+                        <select
+                          value={selectedAssemblyId}
+                          onChange={(e) => setSelectedAssemblyId(e.target.value)}
+                          className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Select assembly…</option>
+                          {assemblies.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.tradeType} — {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-1.5">Assembly Name</label>
+                          <input
+                            type="text"
+                            value={newAssemblyName}
+                            onChange={(e) => setNewAssemblyName(e.target.value)}
+                            placeholder="e.g. RAM Board Floor Protection"
+                            className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-1.5">Trade Type</label>
+                          <select
+                            value={newAssemblyTradeType}
+                            onChange={(e) => setNewAssemblyTradeType(e.target.value)}
+                            className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">Select trade…</option>
+                            {ASSEMBLY_TRADE_TYPES.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Quantity</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={assemblyQty}
+                          onChange={(e) => setAssemblyQty(e.target.value)}
+                          className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="1"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Unit</label>
+                        <input
+                          type="text"
+                          value={assemblyUnit}
+                          onChange={(e) => setAssemblyUnit(e.target.value)}
+                          placeholder={form.unit.trim() || "defaults to product unit"}
+                          className="w-full rounded-lg bg-slate-900 border border-slate-600 text-white placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-700 mt-5">
                 <button
                   type="button"
@@ -542,6 +961,100 @@ export default function ProductsClient() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Preview Modal */}
+      {csvPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setCsvPreview(null)} />
+          <div className="relative bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 flex-shrink-0">
+              <div>
+                <h2 className="text-base font-semibold text-white">CSV Import Preview</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {csvPreview.length} row{csvPreview.length !== 1 ? "s" : ""} detected — existing products will be updated, new ones created.
+                </p>
+              </div>
+              <button onClick={() => setCsvPreview(null)} className="text-slate-400 hover:text-white transition-colors p-1 rounded">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Preview table */}
+            <div className="overflow-auto flex-1 px-6 py-4">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-400 border-b border-slate-700">
+                    {Object.keys(csvPreview[0] ?? {}).map((h) => (
+                      <th key={h} className="pb-2 pr-4 font-semibold uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                  {csvPreview.slice(0, 50).map((row, i) => (
+                    <tr key={i} className="hover:bg-slate-700/30">
+                      {Object.values(row).map((val, j) => (
+                        <td key={j} className="py-1.5 pr-4 text-slate-300 max-w-[180px] truncate">{val || "—"}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {csvPreview.length > 50 && (
+                <p className="text-xs text-slate-500 mt-3">…and {csvPreview.length - 50} more rows</p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-700 flex-shrink-0">
+              <button onClick={() => setCsvPreview(null)} className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleCSVImport}
+                disabled={csvImporting}
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors"
+              >
+                {csvImporting ? "Importing…" : `Import ${csvPreview.length} row${csvPreview.length !== 1 ? "s" : ""}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Result Modal */}
+      {csvResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setCsvResult(null)} />
+          <div className="relative bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-base font-semibold text-white mb-4">Import Complete</h2>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-emerald-900/30 border border-emerald-700/50 rounded-lg px-4 py-3 text-center">
+                <p className="text-2xl font-bold text-emerald-400">{csvResult.created}</p>
+                <p className="text-xs text-emerald-300 mt-0.5">Created</p>
+              </div>
+              <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg px-4 py-3 text-center">
+                <p className="text-2xl font-bold text-blue-400">{csvResult.updated}</p>
+                <p className="text-xs text-blue-300 mt-0.5">Updated</p>
+              </div>
+            </div>
+            {csvResult.errors.length > 0 && (
+              <div className="bg-red-900/20 border border-red-700/50 rounded-lg px-4 py-3 mb-4 max-h-40 overflow-y-auto">
+                <p className="text-xs font-semibold text-red-400 mb-1.5">{csvResult.errors.length} row{csvResult.errors.length !== 1 ? "s" : ""} skipped:</p>
+                {csvResult.errors.map((e, i) => (
+                  <p key={i} className="text-xs text-red-300">{e}</p>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setCsvResult(null)}
+              className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}

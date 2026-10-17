@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import EstimateBuilder from "./EstimateBuilder";
 
 type PageProps = { params: Promise<{ id: string }> };
@@ -15,12 +16,16 @@ export default async function EstimatePage({ params }: PageProps) {
 
   const { id } = await params;
 
-  const estimate = await prisma.estimate.findUnique({
-    where: { id },
-    include: {
-      items: { orderBy: { category: "asc" } },
-    },
-  });
+  const [estimate, measurements] = await Promise.all([
+    prisma.estimate.findUnique({
+      where: { id },
+      include: { items: { orderBy: { category: "asc" } } },
+    }),
+    prisma.measurement.findMany({
+      where: { estimateId: id },
+      select: { tradeType: true, data: true },
+    }),
+  ]);
 
   if (!estimate) {
     notFound();
@@ -31,12 +36,30 @@ export default async function EstimatePage({ params }: PageProps) {
     notFound();
   }
 
-  // Serialize dates to strings for client component
+  // Items are authoritative from the DB — assembly engine sets packages at apply time.
+  // No auto-add or auto-sync here; re-applying measurements is the correct update path.
+
+  // Serialize for client component
   const serialized = {
     ...estimate,
     createdAt: estimate.createdAt.toISOString(),
     updatedAt: estimate.updatedAt.toISOString(),
-    items: estimate.items.map((item) => ({ ...item })),
+    items: estimate.items.map((item) => ({
+      id: item.id,
+      estimateId: item.estimateId,
+      productId: item.productId,
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit,
+      cost: item.cost,
+      markup: item.markup,
+      tier: item.tier,
+      packages: item.packages ?? "good,better,best",
+      category: item.category,
+      isLabor: item.isLabor,
+      sku: item.sku ?? null,
+      supplier: item.supplier ?? null,
+    })),
   };
 
   return (
@@ -49,25 +72,8 @@ export default async function EstimatePage({ params }: PageProps) {
               href="/dashboard"
               className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors"
             >
-              <div className="w-7 h-7 bg-blue-600 rounded-md flex items-center justify-center">
-                <svg
-                  className="w-4 h-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3 10.5L12 3l9 7.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V10.5z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 21V12h6v9"
-                  />
-                </svg>
+              <div className="bg-white rounded-md px-1.5 py-1">
+                <Image src="/innavik-logo.png" alt="Innavik" width={2340} height={564} className="h-4 w-auto" />
               </div>
               <span className="text-sm font-medium hidden sm:inline">Innavik</span>
             </Link>
@@ -98,7 +104,7 @@ export default async function EstimatePage({ params }: PageProps) {
       </nav>
 
       {/* Builder (client component) */}
-      <EstimateBuilder estimate={serialized} />
+      <EstimateBuilder estimate={serialized} isAdmin={isAdmin} measurements={measurements as { tradeType: string; data: unknown }[]} />
     </>
   );
 }

@@ -17,6 +17,18 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+  const distinct = searchParams.get("distinct");
+
+  // Return sorted list of distinct category values
+  if (distinct === "category") {
+    const rows = await prisma.product.findMany({
+      select: { category: true },
+      distinct: ["category"],
+      orderBy: { category: "asc" },
+    });
+    return NextResponse.json(rows.map((r) => r.category));
+  }
+
   const category = searchParams.get("category");
   const tier = searchParams.get("tier");
   const activeParam = searchParams.get("active");
@@ -41,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { sku, name, category, subCategory, supplier, cost, unit, tier, active } = body;
+  const { sku, name, category, subCategory, supplier, cost, unit, tier, packages, active } = body;
 
   if (!name || !category || cost === undefined || !unit) {
     return NextResponse.json(
@@ -60,6 +72,7 @@ export async function POST(request: Request) {
       cost: parseFloat(cost),
       unit,
       tier: tier || "GOOD",
+      packages: packages || "good,better,best",
       active: active !== undefined ? Boolean(active) : true,
     },
   });

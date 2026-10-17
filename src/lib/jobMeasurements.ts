@@ -47,7 +47,7 @@ export interface JobMeasurements {
   // Exterior trim & soffit — shared by Siding and Exterior Trim
   cornerBoardsLf: number  // outside corners
   insideCornersLf: number
-  waterTableLf: number    // level starter / base perimeter
+  starterLf: number       // level starter — siding starter strip (LP cut down / steel)
   fasciaLf: number
   friezeLf: number
   soffitLf: number
@@ -85,7 +85,7 @@ export function emptyJob(): JobMeasurements {
     hoverFacadesSqft: 0, hoverOpeningsSqft: 0, hoverOpeningQty: 0,
     hoverOpeningsTopsLf: 0, hoverOpeningsSillsLf: 0, hoverOpeningsSidesLf: 0,
     hoverVerticalTrimLf: 0, hoverSlopedTrimLf: 0,
-    cornerBoardsLf: 0, insideCornersLf: 0, waterTableLf: 0, fasciaLf: 0, friezeLf: 0,
+    cornerBoardsLf: 0, insideCornersLf: 0, starterLf: 0, fasciaLf: 0, friezeLf: 0,
     soffitLf: 0, soffitArea: 0, jChannelLf: 0, finishTrimLf: 0,
     bandBoardLf: 0, windowTrimLf: 0, doorTrimLf: 0,
   }
@@ -129,7 +129,7 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
     hoverVerticalTrimLf: n(hov.verticalTrimLf), hoverSlopedTrimLf: n(hov.slopedTrimLf),
     cornerBoardsLf: n(trim.cornerBoardsLf) || pick(sid.outsideCorners, hov.outsideCorners),
     insideCornersLf: pick(sid.insideCorners, hov.insideCorners),
-    waterTableLf: n(trim.waterTableLf) || pick(sid.perimeterLf, hov.starterStripLf),
+    starterLf: pick(sid.perimeterLf, hov.starterStripLf) || n(trim.waterTableLf),
     fasciaLf: n(trim.fasciaLf) || pick(sid.fasciaLf, hov.fasciaLf),
     friezeLf: n(trim.friezeLf) || n(hov.friezeBoardLf),
     soffitLf: pick(sid.soffitLf, hov.soffitLf),
@@ -143,8 +143,12 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
 
 // Load the saved Job record; fields it doesn't have yet (e.g. siding added later) come from the old tabs
 export function jobFromSaved(saved: Saved[]): JobMeasurements {
-  const job = saved.find((m) => m.tradeType === JOB_TRADE_TYPE)?.data as Partial<JobMeasurements> | undefined
-  return { ...jobFromScopes(saved), ...(job ?? {}) }
+  const job = saved.find((m) => m.tradeType === JOB_TRADE_TYPE)?.data as (Partial<JobMeasurements> & { waterTableLf?: number }) | undefined
+  const merged = { ...jobFromScopes(saved), ...(job ?? {}) }
+  // Older saved jobs called the level starter waterTableLf
+  if (job && job.starterLf === undefined && job.waterTableLf) merged.starterLf = job.waterTableLf
+  delete (merged as { waterTableLf?: number }).waterTableLf
+  return merged
 }
 
 // Which form sections the Measurements tab shows for the active scopes
@@ -198,11 +202,11 @@ export function deriveForTab(tab: string, job: JobMeasurements): Record<string, 
       walls: job.walls, gables: job.gables,
       eavesLf: job.eaves,
       outsideCorners: job.cornerBoardsLf, insideCorners: job.insideCornersLf,
-      perimeterLf: job.waterTableLf, jChannelLfDirect: job.jChannelLf, finishTrimLf: job.finishTrimLf,
+      perimeterLf: job.starterLf, jChannelLfDirect: job.jChannelLf, finishTrimLf: job.finishTrimLf,
       fasciaLf: job.fasciaLf, soffitLf: job.soffitLf, soffitArea,
       hover: {
         facadesSqft: job.hoverFacadesSqft, openingsSqft: job.hoverOpeningsSqft,
-        starterStripLf: job.waterTableLf,
+        starterStripLf: job.starterLf,
         outsideCorners: job.cornerBoardsLf, insideCorners: job.insideCornersLf,
         openingQty: job.hoverOpeningQty,
         openingsTopsLf: job.hoverOpeningsTopsLf, openingsSillsLf: job.hoverOpeningsSillsLf,
@@ -217,7 +221,7 @@ export function deriveForTab(tab: string, job: JobMeasurements): Record<string, 
     return {
       rakeLf: job.rakes,
       cornerBoardsLf: job.cornerBoardsLf, friezeLf: job.friezeLf, fasciaLf: job.fasciaLf,
-      waterTableLf: job.waterTableLf, bandBoardLf: job.bandBoardLf,
+      bandBoardLf: job.bandBoardLf,
       windowTrimLf: job.windowTrimLf, doorTrimLf: job.doorTrimLf, jChannelLf: job.jChannelLf,
     }
   }
@@ -251,12 +255,12 @@ export function summaryForTab(tab: string, job: JobMeasurements): string[] {
     if (job.sidingSource === "hover") add(job.hoverOpeningsSqft, "sqft openings")
     else add(job.walls.reduce((s, w) => s + (w.openings?.length ?? 0), 0), "opening(s)")
     add(job.cornerBoardsLf, "lf outside corners"); add(job.insideCornersLf, "lf inside corners")
-    add(job.waterTableLf, "lf starter"); add(job.fasciaLf, "lf fascia")
+    add(job.starterLf, "lf level starter"); add(job.fasciaLf, "lf fascia")
     add(job.soffitLf, "lf soffit"); add(effectiveSoffitArea(job), "sqft soffit")
     add(job.jChannelLf, "lf J-channel"); add(job.finishTrimLf, "lf finish trim")
   } else if (tab === "Exterior Trim" || tab === "Exterior Trim Accessories") {
     add(job.cornerBoardsLf, "lf corners"); add(job.rakes, "lf rake"); add(job.friezeLf, "lf frieze")
-    add(job.fasciaLf, "lf fascia"); add(job.waterTableLf, "lf level starter"); add(job.bandBoardLf, "lf band")
+    add(job.fasciaLf, "lf fascia"); add(job.bandBoardLf, "lf band")
     add(job.windowTrimLf, "lf window trim"); add(job.doorTrimLf, "lf door trim"); add(job.jChannelLf, "lf J-channel")
   }
   return parts

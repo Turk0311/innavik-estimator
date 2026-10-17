@@ -1240,9 +1240,10 @@ export function calculateSidingAssembly(
     }
   }
 
-  // 5. Soffit — must have "soffit" in name
-  if (soffitArea > 0) {
-    // GOOD: Aluminum soffit — also needs 3/8" J-channel and trim nails
+  // 5. Soffit — one material, chosen on the Siding tab (LP walls often get aluminum soffit for the look)
+  const soffitMaterial = measurements.soffitMaterial === 'lp' ? 'lp' : 'aluminum'
+  if (soffitArea > 0 && soffitMaterial === 'aluminum') {
+    // Aluminum soffit — also needs 3/8" J-channel at the soffit edge
     const aluminumSoffitProduct = products.find(p => {
       const n = p.name.toLowerCase()
       return n.includes('soffit') && (n.includes('aluminum') || n.includes('aluminium') || n.includes('alum'))
@@ -1285,16 +1286,17 @@ export function calculateSidingAssembly(
         productId: soffitJChannel.id,
       })
     }
+  }
 
-    // Trim nails for aluminum soffit + fascia (GOOD tier accessory)
-    // Coverage: soffit length (soffitLf) + fascia runs eaves + rakes (fasciaLf)
+  // Trim nails for aluminum soffit + fascia coil
+  if (soffitArea > 0 || fasciaLf > 0) {
     const trimNailsProduct = products.find(p => {
       const n = p.name.toLowerCase()
       return n.includes('nail') && (n.includes('trim') || n.includes('soffit') || n.includes('aluminum'))
         && !n.includes('nailer') && !n.includes('gun')
     })
     if (trimNailsProduct) {
-      const soffitEdgeLf = soffitLf > 0 ? soffitLf : eavesLf
+      const soffitEdgeLf = soffitArea > 0 && soffitMaterial === 'aluminum' ? (soffitLf > 0 ? soffitLf : eavesLf) : 0
       const trimNailLf = soffitEdgeLf + fasciaLf
       const nailBoxes = Math.max(1, Math.ceil(trimNailLf / 200))
       items.push({
@@ -1309,8 +1311,9 @@ export function calculateSidingAssembly(
         productId: trimNailsProduct.id,
       })
     }
+  }
 
-    // BETTER: LP SmartSide soffit panel
+  if (soffitArea > 0 && soffitMaterial === 'lp') {
     const lpSoffitProduct = products.find(p => {
       const n = p.name.toLowerCase()
       return n.includes('soffit') && (n.includes('lp') || n.includes('smartside') || n.includes('smart side'))
@@ -1324,7 +1327,7 @@ export function calculateSidingAssembly(
         unit: 'ea',
         cost: lpSoffitProduct.cost,
         markup: DEFAULT_MARKUP,
-        tier: 'BETTER',
+        tier: 'GOOD',
         category: 'Siding Accessories',
         isLabor: false,
         productId: lpSoffitProduct.id,
@@ -5401,7 +5404,6 @@ export function calculateExteriorTrimAssembly(
   const cornerBoardsLf = num(measurements.cornerBoardsLf)
   const friezeLf       = num(measurements.friezeLf)
   const rakeLf         = num(measurements.rakeLf)
-  const waterTableLf   = num(measurements.waterTableLf)
   const bandBoardLf    = num(measurements.bandBoardLf)
   const windowTrimLf   = num(measurements.windowTrimLf)
   const doorTrimLf     = num(measurements.doorTrimLf)
@@ -5410,7 +5412,7 @@ export function calculateExteriorTrimAssembly(
   const wastePct       = num(measurements.wasteFactor, 10)
 
   const totalLf =
-    cornerBoardsLf + friezeLf + rakeLf + waterTableLf +
+    cornerBoardsLf + friezeLf + rakeLf +
     bandBoardLf + windowTrimLf + doorTrimLf + fasciaLf
   // Note: jChannelLf is NOT included in totalLf — it's a separate product (12' sticks)
 
@@ -5553,7 +5555,6 @@ export function calculateExteriorTrimAssembly(
   const trimTypes: { label: string; lf: number; keywords: string[] }[] = [
     { label: 'Corner boards',  lf: cornerBoardsLf, keywords: ['corner board', 'corner trim', 'exterior trim'] },
     { label: 'Rake board',     lf: rakeLf,         keywords: ['rake board', 'rake trim', 'exterior trim'] },
-    { label: 'Level Starter',  lf: waterTableLf,   keywords: ['level starter', 'water table', 'steel starter', 'cbm'] },
     { label: 'Band board',     lf: bandBoardLf,    keywords: ['band board', 'belt course', 'exterior trim'] },
     { label: 'Window trim',    lf: windowTrimLf,   keywords: ['window trim', 'window casing', 'exterior trim'] },
     { label: 'Door trim',      lf: doorTrimLf,     keywords: ['door trim', 'door casing', 'exterior trim'] },

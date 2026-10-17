@@ -224,7 +224,7 @@ export default function JobMeasurementsForm({ value: job, onChange, sections }: 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <Num label="Outside Corners" unit="lf" value={job.cornerBoardsLf} onChange={(v) => set("cornerBoardsLf", v)} hint={trim ? "Also corner boards" : "All outside corners"} />
             {siding && <Num label="Inside Corners" unit="lf" value={job.insideCornersLf} onChange={(v) => set("insideCornersLf", v)} />}
-            <Num label="Level Starter" unit="lf" value={job.waterTableLf} onChange={(v) => set("waterTableLf", v)} hint="Base of the walls" />
+            {siding && <Num label="Level Starter" unit="lf" value={job.starterLf} onChange={(v) => set("starterLf", v)} hint={job.sidingSource === "manual" ? "Blank = from wall widths" : "Siding starter"} />}
             <Num label="Fascia" unit="lf" value={job.fasciaLf} onChange={(v) => set("fasciaLf", v)} />
             {siding && <Num label="Soffit Length" unit="lf" value={job.soffitLf} onChange={(v) => set("soffitLf", v)} />}
             {siding && (

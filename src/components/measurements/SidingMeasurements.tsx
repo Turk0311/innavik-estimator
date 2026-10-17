@@ -30,6 +30,7 @@ export interface GableEntry {
 
 export type SidingMaterial = "variform" | "lp_smartside"
 export type SidingColorRange = "standard" | "dark"
+export type SoffitMaterial = "aluminum" | "lp"
 export type SidingGauge = ".040" | ".044" | ".046"
 export type MeasurementSource = "manual" | "hover"
 
@@ -80,6 +81,7 @@ export interface SidingData {
   sidingMaterial: SidingMaterial
   sidingGauge: SidingGauge
   sidingColorRange: SidingColorRange
+  soffitMaterial: SoffitMaterial
   mountMasters: number
   splitBlocks: number
   exhaustVents: number
@@ -208,6 +210,7 @@ export default function SidingMeasurements({ initialData, onChange, part = "all"
     sidingMaterial:    (initialData?.sidingMaterial   as SidingMaterial)   ?? "variform",
     sidingGauge:       (initialData?.sidingGauge      as SidingGauge)      ?? ".044",
     sidingColorRange:  (initialData?.sidingColorRange as SidingColorRange) ?? "standard",
+    soffitMaterial:    (initialData?.soffitMaterial   as SoffitMaterial)   ?? "aluminum",
     mountMasters:      initialData?.mountMasters      ?? 0,
     splitBlocks:       initialData?.splitBlocks       ?? 0,
     exhaustVents:      initialData?.exhaustVents      ?? 0,
@@ -359,6 +362,30 @@ export default function SidingMeasurements({ initialData, onChange, part = "all"
           </div>
         )}
       </div>
+      )}
+
+      {/* ── Soffit material ─────────────────────────────────────────────────── */}
+      {showOptions && (
+        <div className={sectionCls}>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Soffit Material</h3>
+          <div className="flex flex-wrap gap-3">
+            {([
+              { value: "aluminum", label: "Aluminum", sub: "Common with LP or vinyl walls" },
+              { value: "lp",       label: "LP SmartSide", sub: "Engineered wood soffit" },
+            ] as { value: SoffitMaterial; label: string; sub: string }[]).map(m => {
+              const active = data.soffitMaterial === m.value;
+              return (
+                <button key={m.value} type="button" onClick={() => update("soffitMaterial", m.value)}
+                  className={["flex flex-col items-start px-4 py-3 rounded-xl border text-left transition-all flex-1",
+                    active ? "bg-blue-600/20 border-blue-500 ring-1 ring-blue-500"
+                           : "bg-slate-700/50 border-slate-600 hover:border-slate-500"].join(" ")}>
+                  <span className={["text-sm font-bold", active ? "text-blue-300" : "text-white"].join(" ")}>{m.label}</span>
+                  <span className="text-xs text-slate-400 mt-0.5">{m.sub}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* ── Waste (options view; otherwise it sits with the walls) ───────────── */}

@@ -13,7 +13,6 @@ export interface ExteriorTrimData {
   cornerBoardsLf: number
   friezeLf: number
   rakeLf: number
-  waterTableLf: number
   bandBoardLf: number
   windowTrimLf: number
   doorTrimLf: number
@@ -79,7 +78,6 @@ export default function ExteriorTrimMeasurements({ initialData, onChange, linked
     cornerBoardsLf: initialData?.cornerBoardsLf ?? 0,
     friezeLf:       initialData?.friezeLf       ?? 0,
     rakeLf:         initialData?.rakeLf         ?? 0,
-    waterTableLf:   initialData?.waterTableLf   ?? 0,
     bandBoardLf:    initialData?.bandBoardLf    ?? 0,
     windowTrimLf:   initialData?.windowTrimLf   ?? 0,
     doorTrimLf:     initialData?.doorTrimLf     ?? 0,
@@ -101,11 +99,11 @@ export default function ExteriorTrimMeasurements({ initialData, onChange, linked
 
   const totalLf =
     view.cornerBoardsLf + view.friezeLf + view.rakeLf +
-    view.waterTableLf + view.bandBoardLf + view.windowTrimLf +
+    view.bandBoardLf + view.windowTrimLf +
     view.doorTrimLf + view.fasciaLf;
   const adjustedLf = Math.ceil(totalLf * (1 + view.wasteFactor / 100));
   // LP sticks are always 16ft; aluminum 10ft — frieze & fascia excluded (they're coil)
-  const lpOnlyLf = Math.ceil((view.cornerBoardsLf + view.rakeLf + view.waterTableLf + view.bandBoardLf + view.windowTrimLf + view.doorTrimLf) * (1 + view.wasteFactor / 100));
+  const lpOnlyLf = Math.ceil((view.cornerBoardsLf + view.rakeLf + view.bandBoardLf + view.windowTrimLf + view.doorTrimLf) * (1 + view.wasteFactor / 100));
   const stickCount = Math.ceil(lpOnlyLf / 16);
 
   // Coil yield helper: 24"×50' coil, strips cut to (exposure + 1.25" return) width
@@ -242,8 +240,6 @@ export default function ExteriorTrimMeasurements({ initialData, onChange, linked
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <LfField locked={locked} label="Level Starter" value={view.waterTableLf} onChange={(v) => update("waterTableLf", v)}
-            hint="Foundation transition" />
           <LfField locked={locked} label="Band Board" value={view.bandBoardLf} onChange={(v) => update("bandBoardLf", v)}
             hint="Floor-line belt course" />
           <LfField locked={locked} label="Window Trim" value={view.windowTrimLf} onChange={(v) => update("windowTrimLf", v)}
@@ -306,7 +302,6 @@ export default function ExteriorTrimMeasurements({ initialData, onChange, linked
               { label: "Frieze Board",  lf: view.friezeLf },
               { label: "Rake Board",    lf: view.rakeLf },
               { label: "Fascia",        lf: view.fasciaLf },
-              { label: "Level Starter", lf: view.waterTableLf },
               { label: "Band Board",    lf: view.bandBoardLf },
               { label: "Window Trim",   lf: view.windowTrimLf },
               { label: "Door Trim",     lf: view.doorTrimLf },

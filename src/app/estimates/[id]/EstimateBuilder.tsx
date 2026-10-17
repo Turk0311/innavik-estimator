@@ -1897,7 +1897,7 @@ function summarizeMeasurement(tradeType: string, data: unknown): MLine[] {
     case "Exterior Trim": {
       const lfFields: [string, string][] = [
         ["Corner boards", "cornerBoardsLf"], ["Frieze", "friezeLf"], ["Rake", "rakeLf"],
-        ["Water table", "waterTableLf"], ["Window trim", "windowTrimLf"],
+        ["Window trim", "windowTrimLf"],
         ["Door trim", "doorTrimLf"], ["Fascia", "fasciaLf"],
       ];
       for (const [label, key] of lfFields) {

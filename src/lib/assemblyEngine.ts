@@ -1,3 +1,4 @@
+import { minMarkupFor } from "@/lib/pricing"
 // Assembly calculation engine
 // Takes raw field measurements and returns a list of pre-calculated estimate items
 
@@ -3835,61 +3836,50 @@ export function calculateDeckFramingAccessoriesAssembly(
 // ---------------------------------------------------------------------------
 // Gutter Assembly
 // ---------------------------------------------------------------------------
+// Gutters are subbed out "materials included": every line is a Labor page rate, matched by size
 export function calculateGutterAssembly(
   measurements: MeasurementData,
   allProducts: Product[]
 ): AssemblyItem[] {
   const linearFt = num(measurements.linearFt)
   const downspouts = num(measurements.downspouts)
-  // Downspouts are bought in 10' lengths; without a total, assume one length each
+  // Without a total footage, assume one 10' length per downspout
   const downspoutLf = num(measurements.downspoutLf) || downspouts * 10
-  const insideMiters = num(measurements.insideMiters)
-  const outsideMiters = num(measurements.outsideMiters) || num(measurements.corners)
+  const miters = num(measurements.insideMiters) + (num(measurements.outsideMiters) || num(measurements.corners))
   const guards = Boolean(measurements.guards)
   const size = measurements.gutterSize === '6' ? '6' : '5'
   const ds = measurements.downspoutSize === '3x4' ? '3x4' : '2x3'
-  const dsName = ds === '3x4' ? '3"x4"' : '2"x3"'
 
   if (linearFt <= 0) return []
 
-  const isLabor = (p: Product) => p.category.toLowerCase().includes('labor')
-  const products = allProducts.filter((p) => !isLabor(p))
-  const laborCatalog = allProducts.filter(isLabor)
-  const sizeTokens = (inches: string) => [`${inches}"`, `${inches} in`, `${inches}-inch`, `${inches} inch`]
-  const sized = (inches: string, ...keywords: string[]) =>
-    sizeTokens(inches).map((t) => findProductAnd(products, t, ...keywords)).find(Boolean)
-  const dsTokens = ds === '3x4' ? ['3"x4"', '3x4', '3" x 4"'] : ['2"x3"', '2x3', '2" x 3"']
-  const dsProduct = dsTokens.map((t) => findProductAnd(products, t, 'downspout')).find(Boolean)
+  const laborCatalog = allProducts.filter((p) => p.category.toLowerCase().includes('labor'))
+  const norm = (name: string) => name.toLowerCase().replace(/[\s"”″]/g, '')
+  const find = (test: (n: string) => boolean) => laborCatalog.find((p) => test(norm(p.name)))
 
   const items: AssemblyItem[] = []
-  const push = (description: string, quantity: number, unit: string, cost: number, isLaborLine: boolean, productId?: string) => {
+  const push = (p: Product | undefined, fallbackName: string, quantity: number, unit: string) => {
     if (quantity <= 0) return
-    items.push({ description, quantity, unit, cost, markup: DEFAULT_MARKUP, tier: 'GOOD', category: 'Gutters', isLabor: isLaborLine, productId })
-  }
-  const labor = (name: string, quantity: number, unit: string, fallbackCost: number) => {
-    const p = laborCatalog.find((l) => l.name.toLowerCase() === name.toLowerCase())
-    push(p?.name ?? name, quantity, unit, p?.cost || fallbackCost, true, p?.id)
-  }
-
-  const gutterProduct = sized(size, 'gutter')
-  push(gutterProduct?.name ?? `${size}" Gutter`, linearFt, 'lf', gutterProduct?.cost ?? DEFAULT_COSTS.gutter, false, gutterProduct?.id)
-
-  push(dsProduct?.name ?? `${dsName}x10' Downspout`, ceil(downspoutLf / 10), 'ea',
-    dsProduct?.cost ?? DEFAULT_COSTS.downspout, false, dsProduct?.id)
-
-  const insideProduct = sized(size, 'inside', 'miter') ?? sized(size, 'inside', 'mitre')
-  push(insideProduct?.name ?? `${size}" Inside Miter`, insideMiters, 'ea', insideProduct?.cost ?? DEFAULT_COSTS.gutterCorner, false, insideProduct?.id)
-  const outsideProduct = sized(size, 'outside', 'miter') ?? sized(size, 'outside', 'mitre')
-  push(outsideProduct?.name ?? `${size}" Outside Miter`, outsideMiters, 'ea', outsideProduct?.cost ?? DEFAULT_COSTS.gutterCorner, false, outsideProduct?.id)
-
-  if (guards) {
-    const guardProduct = findProduct(products, 'gutter guard', 'leaf guard')
-    push(guardProduct?.name ?? 'Gutter guards', linearFt, 'lf', guardProduct?.cost ?? DEFAULT_COSTS.gutterGuard, false, guardProduct?.id)
+    items.push({
+      description: p?.name ?? `${fallbackName} — add to Labor page`,
+      quantity,
+      unit,
+      cost: p?.cost ?? 0,
+      markup: minMarkupFor('Gutters'),
+      tier: 'GOOD',
+      category: 'Gutters',
+      isLabor: true,
+      productId: p?.id,
+    })
   }
 
-  labor(`${size}" Gutter`, linearFt, 'lf', DEFAULT_COSTS.gutterLabor)
-  labor(`${ds} Downspout`, downspoutLf, 'lf', DEFAULT_COSTS.gutterLabor)
-  if (guards) labor('Gutter Guard', linearFt, 'lf', DEFAULT_COSTS.gutterGuard)
+  push(find((n) => n.startsWith(size) && n.includes('gutter') && !n.includes('guard') && !n.includes('apron')),
+    `${size}" Gutter Remove and Replace`, linearFt, 'lf')
+  push(find((n) => n.includes(ds) && n.includes('downspout')),
+    `${ds} Downspout Remove and Replace`, downspoutLf, 'lf')
+  push(find((n) => n.startsWith(size) && n.includes('miter')),
+    `${size}" Miter Inside/Outside`, miters, 'ea')
+  if (guards) push(find((n) => n.includes('gutterguard')), 'Gutter Guard', linearFt, 'lf')
+  push(find((n) => n.includes('gutter') && n.includes('trip')), 'Gutter Trip Charge', 1, 'ea')
 
   return items
 }

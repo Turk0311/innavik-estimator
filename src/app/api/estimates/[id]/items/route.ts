@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { Tier } from "@/generated/prisma";
 import { getEstimateMarkup } from "@/lib/estimateMarkup";
+import { clampMarkup, MIN_MARKUP_BY_CATEGORY } from "@/lib/pricing";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -72,7 +73,7 @@ export async function POST(request: Request, context: RouteContext) {
       quantity: Number(quantity),
       unit,
       cost: Number(cost),
-      markup: Number(markup ?? 0),
+      markup: clampMarkup(category, Number(markup ?? 0)),
       tier: tier as Tier,
       packages: pkgList,
       category,
@@ -130,7 +131,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         ...(quantity    != null && { quantity: Number(quantity) }),
         ...(unit        != null && { unit }),
         ...(cost        != null && { cost: Number(cost) }),
-        ...(markup      != null && { markup: Number(markup) }),
+        ...(markup      != null && { markup: clampMarkup(existing.category, Number(markup)) }),
         ...(tier        != null && { tier: tier as Tier }),
         ...(pkgsPatch   != null && { packages: String(pkgsPatch) }),
       },
@@ -165,6 +166,13 @@ export async function PUT(request: Request, context: RouteContext) {
 
   const from = await getEstimateMarkup(estimateId);
   await prisma.estimateItem.updateMany({ where: { estimateId, markup: from }, data: { markup } });
+  // Floored trades never drop below their minimum
+  for (const [category, min] of Object.entries(MIN_MARKUP_BY_CATEGORY)) {
+    await prisma.estimateItem.updateMany({
+      where: { estimateId, category: { equals: category, mode: "insensitive" }, markup: { lt: min } },
+      data: { markup: min },
+    });
+  }
   return NextResponse.json({ updated: true, markup, from });
 }
 

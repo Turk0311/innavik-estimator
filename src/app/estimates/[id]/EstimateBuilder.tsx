@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { withTaxAndDelivery, grossMargin, taxRateFrom, DEFAULT_TAX_RATE, SETTINGS_TRADE_TYPE } from "@/lib/pricing";
+import { withTaxAndDelivery, grossMargin, taxRateFrom, clampMarkup, DEFAULT_TAX_RATE, SETTINGS_TRADE_TYPE } from "@/lib/pricing";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2106,7 +2106,7 @@ export default function EstimateBuilder({ estimate: initialEstimate, isAdmin = f
   const [isDraggingMarkup, setIsDraggingMarkup] = useState(false);
   const overrideItems = useMemo(() => items.filter((i) => i.markup !== baseMarkup), [items, baseMarkup]);
   const previewItems = useMemo(
-    () => isDraggingMarkup ? items.map((i) => (i.markup === baseMarkup ? { ...i, markup: globalMarkup } : i)) : items,
+    () => isDraggingMarkup ? items.map((i) => (i.markup === baseMarkup ? { ...i, markup: clampMarkup(i.category, globalMarkup) } : i)) : items,
     [items, isDraggingMarkup, baseMarkup, globalMarkup]
   );
 
@@ -2131,7 +2131,7 @@ export default function EstimateBuilder({ estimate: initialEstimate, isAdmin = f
       });
       if (!res.ok) return;
       const { from } = await res.json() as { from: number };
-      setItems((prev) => prev.map((i) => (i.markup === from ? { ...i, markup: value } : i)));
+      setItems((prev) => prev.map((i) => ({ ...i, markup: clampMarkup(i.category, i.markup === from ? value : i.markup) })));
     } finally {
       setMarkupSaving(false);
     }

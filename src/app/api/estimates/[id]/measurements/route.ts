@@ -32,6 +32,7 @@ import {
 import { Prisma } from "@/generated/prisma";
 import { Tier } from "@/generated/prisma";
 import { DEFAULT_MARKUP, getEstimateMarkup } from "@/lib/estimateMarkup";
+import { clampMarkup } from "@/lib/pricing";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -253,7 +254,7 @@ export async function POST(request: Request, context: RouteContext) {
             unit: item.unit,
             cost: item.cost,
             // Engine default markup follows the estimate's global; deliberate ones (e.g. Roofing Charge) stay
-            markup: item.markup === DEFAULT_MARKUP ? estimateMarkup : item.markup,
+            markup: clampMarkup(item.category, item.markup === DEFAULT_MARKUP ? estimateMarkup : item.markup),
             tier: item.tier as Tier,
             packages: item.packages ?? "good,better,best",
             category: item.category,

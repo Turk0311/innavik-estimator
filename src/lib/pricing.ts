@@ -1,5 +1,16 @@
 // Material tax follows the sheet's divisor convention: 10% → taxed = amount / 0.90
 export const DEFAULT_TAX_RATE = 10;
+
+// Margin floors by trade — lines in these categories can go up, never below
+export const MIN_MARKUP_BY_CATEGORY: Record<string, number> = { gutters: 50 };
+
+export function minMarkupFor(category: string): number {
+  return MIN_MARKUP_BY_CATEGORY[category.trim().toLowerCase()] ?? 0;
+}
+
+export function clampMarkup(category: string, markup: number): number {
+  return Math.max(minMarkupFor(category), markup);
+}
 export const DELIVERY_FEE = 150;
 // Per-estimate settings are stored as a Measurement record with this tradeType
 export const SETTINGS_TRADE_TYPE = "Settings";

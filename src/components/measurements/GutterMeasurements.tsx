@@ -7,6 +7,8 @@ export interface GutterData {
   downspouts: number
   corners: number
   guards: boolean
+  gutterSize: "5" | "6"
+  downspoutSize: "2x3" | "3x4"
 }
 
 interface Props {
@@ -46,6 +48,8 @@ export default function GutterMeasurements({ initialData, onChange, linked = fal
     downspouts: initialData?.downspouts ?? 0,
     corners: initialData?.corners ?? 0,
     guards: initialData?.guards ?? false,
+    gutterSize: initialData?.gutterSize ?? "5",
+    downspoutSize: initialData?.downspoutSize ?? "2x3",
   });
 
   function update<K extends keyof GutterData>(key: K, value: GutterData[K]) {
@@ -74,6 +78,36 @@ export default function GutterMeasurements({ initialData, onChange, linked = fal
         )}
       </div>
       )}
+
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Sizes</h3>
+        <div className="flex flex-wrap gap-6">
+          {([
+            { key: "gutterSize", label: "Gutter", options: [["5", '5"'], ["6", '6"']] },
+            { key: "downspoutSize", label: "Downspout", options: [["2x3", '2"x3"'], ["3x4", '3"x4"']] },
+          ] as const).map((group) => (
+            <div key={group.key}>
+              <p className={labelCls}>{group.label}</p>
+              <div className="flex gap-1">
+                {group.options.map(([value, text]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => update(group.key, value as never)}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                      data[group.key] === value
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
+                    }`}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
         <label className="flex items-center gap-3 cursor-pointer">

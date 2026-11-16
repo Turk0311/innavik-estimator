@@ -2,8 +2,19 @@
 // Each scope keeps only its own choices (job type, waste, materials); derived values always win.
 
 import type { WallEntry, GableEntry, MeasurementSource } from "@/components/measurements/SidingMeasurements"
+import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements"
 
 export interface PlaneEntry { id: string; label: string; area: number }
+
+export interface RoomEntry {
+  id: string
+  label: string
+  length: number
+  width: number
+  height: number
+  ceiling: boolean  // ceiling is part of the paint and drywall work
+  floor: boolean    // room gets new flooring
+}
 
 export interface JobMeasurements {
   // Roof
@@ -31,7 +42,9 @@ export interface JobMeasurements {
   // Gutters
   gutterLf: number        // 0 = same as eaves
   downspouts: number
-  gutterCorners: number
+  downspoutLf: number     // 0 = one 10' length per downspout
+  insideMiters: number
+  outsideMiters: number
   // Exterior walls (siding) — hand measured or copied from a Hover report
   sidingSource: MeasurementSource
   walls: WallEntry[]
@@ -57,11 +70,27 @@ export interface JobMeasurements {
   bandBoardLf: number
   windowTrimLf: number
   doorTrimLf: number
+  // Interior
+  rooms: RoomEntry[]
+  doors: WallDoorEntry[]
+  windows: WallWindowEntry[]
+  interiorCorners: number
 }
 
-export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim"
+export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim" | "rooms" | "openings" | "corners"
 
-export const LINKED_TABS = new Set(["Roofing", "Gutters", "Siding", "Exterior Trim", "Exterior Trim Accessories"])
+export const LINKED_TABS = new Set([
+  "Roofing", "Gutters", "Siding", "Exterior Trim", "Exterior Trim Accessories",
+  "Painting", "Drywall", "Drywall Accessories", "Interior Trim", "Interior Trim Accessories",
+  "Flooring", "Wall Assembly",
+])
+
+// Wall and ceiling sections built from rooms carry this id prefix so they are never saved as hand-entered ones
+const ROOM_ENTRY_PREFIX = "room:"
+
+export function newRoom(): RoomEntry {
+  return { id: String(Date.now() + Math.random()), label: "", length: 0, width: 0, height: 0, ceiling: false, floor: true }
+}
 
 export const JOB_TRADE_TYPE = "Job"
 
@@ -78,7 +107,7 @@ export function emptyJob(): JobMeasurements {
     leadStacks3: 0, leadStacks4: 0, leadStacks5: 0, leadStacks6: 0,
     slantBackVents: 0, kitchenVents: 0, bathroomVents: 0,
     eaves: 0, rakes: 0, soffitOverhangIn: 12,
-    gutterLf: 0, downspouts: 0, gutterCorners: 0,
+    gutterLf: 0, downspouts: 0, downspoutLf: 0, insideMiters: 0, outsideMiters: 0,
     sidingSource: "manual",
     walls: [{ id: String(Date.now() + 1), label: "", width: 0, height: 0, openings: [] }],
     gables: [],
@@ -88,6 +117,7 @@ export function emptyJob(): JobMeasurements {
     cornerBoardsLf: 0, insideCornersLf: 0, starterLf: 0, fasciaLf: 0, friezeLf: 0,
     soffitLf: 0, soffitArea: 0, jChannelLf: 0, finishTrimLf: 0,
     bandBoardLf: 0, windowTrimLf: 0, doorTrimLf: 0,
+    rooms: [newRoom()], doors: [], windows: [], interiorCorners: 0,
   }
 }
 
@@ -104,6 +134,19 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
   const planes = Array.isArray(roof.planes) && roof.planes.length > 0 ? (roof.planes as PlaneEntry[]) : base.planes
   const walls = Array.isArray(sid.walls) && sid.walls.length > 0 ? (sid.walls as WallEntry[]) : base.walls
   const pick = (manual: unknown, hover: unknown) => n(isHover ? hover : manual)
+  const wa = find("Wall Assembly") ?? {}
+  const it = find("Interior Trim") ?? find("Interior") ?? {}
+  const list = <T,>(...sources: unknown[]): T[] => {
+    for (const src of sources) if (Array.isArray(src) && src.length > 0) return src as T[]
+    return []
+  }
+  const paintRooms = list<Partial<RoomEntry>>(find("Painting")?.rooms)
+    .filter((r) => n(r.length) > 0 || n(r.width) > 0)
+  const floorRooms = list<Partial<RoomEntry>>(find("Flooring")?.rooms)
+    .filter((r) => n(r.length) > 0 && n(r.width) > 0)
+  const rooms: RoomEntry[] = paintRooms.length > 0
+    ? paintRooms.map((r) => ({ ...newRoom(), ...r, floor: r.floor !== false }))
+    : floorRooms.map((r) => ({ ...newRoom(), ...r, height: 0, ceiling: false, floor: true }))
 
   return {
     ...base,
@@ -119,7 +162,8 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
     rakes: n(roof.rakes) || n(trim.rakeLf) || n(hov.rakesLf),
     soffitOverhangIn: n(roof.soffitOverhangIn) || 12,
     gutterLf: n(gut.linearFt) === n(roof.eaves) ? 0 : n(gut.linearFt),
-    downspouts: n(gut.downspouts), gutterCorners: n(gut.corners),
+    downspouts: n(gut.downspouts), downspoutLf: n(gut.downspoutLf),
+    insideMiters: n(gut.insideMiters), outsideMiters: n(gut.outsideMiters) || n(gut.corners),
     sidingSource: isHover ? "hover" : "manual",
     walls,
     gables: Array.isArray(sid.gables) ? (sid.gables as GableEntry[]) : [],
@@ -138,6 +182,10 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
     finishTrimLf: n(sid.finishTrimLf),
     bandBoardLf: n(trim.bandBoardLf),
     windowTrimLf: n(trim.windowTrimLf), doorTrimLf: n(trim.doorTrimLf),
+    rooms: rooms.length > 0 ? rooms : base.rooms,
+    doors: list<WallDoorEntry>(wa.doors, it.doors),
+    windows: list<WallWindowEntry>(wa.windows, it.windows),
+    interiorCorners: n(wa.corners),
   }
 }
 
@@ -147,6 +195,10 @@ export function jobFromSaved(saved: Saved[]): JobMeasurements {
   const merged = { ...jobFromScopes(saved), ...(job ?? {}) }
   // Older saved jobs called the level starter waterTableLf
   if (job && job.starterLf === undefined && job.waterTableLf) merged.starterLf = job.waterTableLf
+  // Older saved jobs had one "corners" count; treat those as outside miters
+  const oldCorners = (job as { gutterCorners?: number } | undefined)?.gutterCorners
+  if (job && job.outsideMiters === undefined && oldCorners) merged.outsideMiters = oldCorners
+  delete (merged as { gutterCorners?: number }).gutterCorners
   delete (merged as { waterTableLf?: number }).waterTableLf
   return merged
 }
@@ -159,7 +211,53 @@ export function sectionsForTabs(tabs: string[]): Set<JobSection> {
   if (has("Gutters")) s.add("gutters").add("edges")
   if (has("Siding")) s.add("siding").add("edges")
   if (has("Exterior Trim") || has("Exterior Trim Accessories")) s.add("trim").add("edges")
+  const trim = has("Interior Trim") || has("Interior Trim Accessories")
+  if (has("Painting") || has("Drywall") || has("Drywall Accessories") || has("Flooring") || trim) s.add("rooms")
+  if (has("Painting") || has("Drywall Accessories") || has("Wall Assembly") || trim) s.add("openings")
+  if (has("Drywall Accessories") || has("Wall Assembly")) s.add("corners")
   return s
+}
+
+function validRooms(job: JobMeasurements): RoomEntry[] {
+  return job.rooms.filter((r) => n(r.length) > 0 && n(r.width) > 0)
+}
+
+export function roomWallLf(r: RoomEntry): number {
+  return 2 * (n(r.length) + n(r.width))
+}
+
+export function roomPaintArea(r: RoomEntry): number {
+  return roomWallLf(r) * n(r.height) + (r.ceiling ? n(r.length) * n(r.width) : 0)
+}
+
+const feet = (ft: number, inches: number) => n(ft) + n(inches) / 12
+
+function doorCasingLf(job: JobMeasurements): number {
+  return job.doors.reduce((s, d) => {
+    const sides = (d.type ?? "interior") === "interior" ? 2 : 1
+    return s + (2 * feet(d.heightFt, d.heightIn) + feet(d.widthFt, d.widthIn)) * sides * n(d.count)
+  }, 0)
+}
+
+function doorEdgeLf(job: JobMeasurements): number {
+  return job.doors.reduce((s, d) => s + (2 * feet(d.heightFt, d.heightIn) + feet(d.widthFt, d.widthIn)) * n(d.count), 0)
+}
+
+function windowPerimeterLf(job: JobMeasurements): number {
+  return job.windows.reduce((s, w) => s + (2 * feet(w.heightFt, w.heightIn) + 2 * feet(w.widthFt, w.widthIn)) * n(w.count), 0)
+}
+
+// Hand-entered sections only, with any room-built ones removed
+export function stripRoomEntries<T>(data: T): T {
+  const d = data as Record<string, unknown>
+  const strip = (v: unknown) => (Array.isArray(v)
+    ? v.filter((e) => !String((e as { id?: unknown }).id ?? "").startsWith(ROOM_ENTRY_PREFIX))
+    : v)
+  return {
+    ...d,
+    ...(d.wallSections !== undefined && { wallSections: strip(d.wallSections) }),
+    ...(d.ceilingSections !== undefined && { ceilingSections: strip(d.ceilingSections) }),
+  } as T
 }
 
 export function roofArea(job: JobMeasurements): number {
@@ -178,7 +276,11 @@ export function wallArea(job: JobMeasurements): number {
 }
 
 // The measurement fields a scope's assembly reads, in the shape that scope already uses
-export function deriveForTab(tab: string, job: JobMeasurements): Record<string, unknown> | null {
+export function deriveForTab(
+  tab: string,
+  job: JobMeasurements,
+  scopeData: Record<string, unknown> = {},
+): Record<string, unknown> | null {
   if (tab === "Roofing") {
     return {
       planes: job.planes, pitch: job.pitch,
@@ -192,7 +294,10 @@ export function deriveForTab(tab: string, job: JobMeasurements): Record<string, 
     }
   }
   if (tab === "Gutters") {
-    return { linearFt: job.gutterLf || job.eaves, downspouts: job.downspouts, corners: job.gutterCorners }
+    return {
+      linearFt: job.gutterLf || job.eaves, downspouts: job.downspouts, downspoutLf: job.downspoutLf,
+      insideMiters: job.insideMiters, outsideMiters: job.outsideMiters, corners: 0,
+    }
   }
   if (tab === "Siding") {
     const soffitArea = effectiveSoffitArea(job)
@@ -225,6 +330,60 @@ export function deriveForTab(tab: string, job: JobMeasurements): Record<string, 
       windowTrimLf: job.windowTrimLf, doorTrimLf: job.doorTrimLf, jChannelLf: job.jChannelLf,
     }
   }
+
+  const rooms = validRooms(job)
+  // A room with no height is floor-only: no walls, base or casing
+  const perimeter = rooms.filter((r) => n(r.height) > 0).reduce((s, r) => s + roomWallLf(r), 0)
+  if (tab === "Painting") {
+    const doorWidths = job.doors.reduce((s, d) => s + feet(d.widthFt, d.widthIn) * n(d.count), 0)
+    const baseLf = Math.max(0, Math.round(perimeter - doorWidths))
+    const casingLf = Math.round(doorCasingLf(job) + windowPerimeterLf(job))
+    return { rooms, ...(baseLf > 0 && { baseLf }), ...(casingLf > 0 && { casingLf }) }
+  }
+  if (tab === "Drywall") {
+    const own = stripRoomEntries(scopeData)
+    const walls = rooms.filter((r) => n(r.height) > 0).map((r) => ({
+      id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: roomWallLf(r), height: r.height,
+    }))
+    const ceilings = rooms.filter((r) => r.ceiling).map((r) => ({
+      id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: r.length, width: r.width,
+    }))
+    return {
+      wallSections: [...walls, ...((own.wallSections as unknown[]) ?? [])],
+      ceilingSections: [...ceilings, ...((own.ceilingSections as unknown[]) ?? [])],
+    }
+  }
+  if (tab === "Drywall Accessories") {
+    const heights = rooms.map((r) => n(r.height)).filter((h) => h > 0)
+    const avgHeight = heights.length > 0 ? heights.reduce((s, h) => s + h, 0) / heights.length : 8
+    const cornerBeadLf = Math.round(job.interiorCorners * avgHeight)
+    const jBeadLf = Math.round(doorEdgeLf(job) + windowPerimeterLf(job))
+    const sqft = Math.round(rooms.reduce((s, r) => s + roomPaintArea(r), 0))
+    return {
+      ...(cornerBeadLf > 0 && { cornerBeadLf }),
+      ...(jBeadLf > 0 && { jBeadLf }),
+      ...(sqft > 0 && { primerSqft: sqft, textureSqft: sqft }),
+    }
+  }
+  if (tab === "Interior Trim" || tab === "Interior Trim Accessories") {
+    const doorCount = job.doors.reduce((s, d) => s + n(d.count), 0)
+    return {
+      ...(perimeter > 0 && { baseLf: Math.round(perimeter) }),
+      ...(doorCount > 0 && { doorDeductions: doorCount }),
+      doors: job.doors.map((d) => ({ ...d, type: d.type ?? "interior" })),
+      windows: job.windows,
+    }
+  }
+  if (tab === "Flooring") {
+    return {
+      rooms: rooms.filter((r) => r.floor !== false).map((r) => ({
+        id: r.id, label: r.label, length: r.length, width: r.width,
+      })),
+    }
+  }
+  if (tab === "Wall Assembly") {
+    return { doors: job.doors, windows: job.windows, corners: job.interiorCorners }
+  }
   return null
 }
 
@@ -248,7 +407,8 @@ export function summaryForTab(tab: string, job: JobMeasurements): string[] {
     add(job.slantBackVents + job.kitchenVents + job.bathroomVents, "vent(s)")
   } else if (tab === "Gutters") {
     add(job.gutterLf || job.eaves, job.gutterLf ? "lf gutter" : "lf gutter (eaves)")
-    add(job.downspouts, "downspout(s)"); add(job.gutterCorners, "corner(s)")
+    add(job.downspouts, "downspout(s)"); add(job.downspoutLf || job.downspouts * 10, "lf downspout")
+    add(job.insideMiters, "inside miter(s)"); add(job.outsideMiters, "outside miter(s)")
   } else if (tab === "Siding") {
     parts.push(job.sidingSource === "hover" ? "Hover report" : "Hand measured")
     add(wallArea(job), "sqft walls")
@@ -262,6 +422,28 @@ export function summaryForTab(tab: string, job: JobMeasurements): string[] {
     add(job.cornerBoardsLf, "lf corners"); add(job.rakes, "lf rake"); add(job.friezeLf, "lf frieze")
     add(job.fasciaLf, "lf fascia"); add(job.bandBoardLf, "lf band")
     add(job.windowTrimLf, "lf window trim"); add(job.doorTrimLf, "lf door trim"); add(job.jChannelLf, "lf J-channel")
+  } else {
+    const rooms = validRooms(job)
+    const doorCount = job.doors.reduce((s, d) => s + n(d.count), 0)
+    const windowCount = job.windows.reduce((s, w) => s + n(w.count), 0)
+    const walls = Math.round(rooms.reduce((s, r) => s + roomWallLf(r) * n(r.height), 0))
+    const ceilings = Math.round(rooms.filter((r) => r.ceiling).reduce((s, r) => s + n(r.length) * n(r.width), 0))
+    if (tab === "Painting" || tab === "Drywall") {
+      add(rooms.length, "room(s)"); add(walls, "sqft walls"); add(ceilings, "sqft ceilings")
+      if (tab === "Painting") { add(doorCount, "door(s)"); add(windowCount, "window(s)") }
+    } else if (tab === "Drywall Accessories") {
+      add(rooms.length, "room(s)"); add(walls + ceilings, "sqft"); add(job.interiorCorners, "corner(s)")
+      add(doorCount, "door(s)"); add(windowCount, "window(s)")
+    } else if (tab === "Interior Trim" || tab === "Interior Trim Accessories") {
+      add(rooms.length, "room(s)"); add(Math.round(rooms.filter((r) => n(r.height) > 0).reduce((s, r) => s + roomWallLf(r), 0)), "lf walls")
+      add(doorCount, "door(s)"); add(windowCount, "window(s)")
+    } else if (tab === "Flooring") {
+      const floors = rooms.filter((r) => r.floor !== false)
+      add(floors.length, "room(s)")
+      add(Math.round(floors.reduce((s, r) => s + n(r.length) * n(r.width), 0)), "sqft floor")
+    } else if (tab === "Wall Assembly") {
+      add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
+    }
   }
   return parts
 }

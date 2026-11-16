@@ -41,6 +41,7 @@ export interface InteriorTrimData {
 interface Props {
   initialData?: Partial<InteriorTrimData>;
   onChange: (data: InteriorTrimData) => void;
+  linkedValues?: Partial<InteriorTrimData>;
 }
 
 // ── Profile options ────────────────────────────────────────────────────────
@@ -148,7 +149,7 @@ function FtInInput({
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function InteriorTrimMeasurements({ initialData, onChange }: Props) {
+export default function InteriorTrimMeasurements({ initialData, onChange, linkedValues }: Props) {
   const [data, setData] = useState<InteriorTrimData>({
     baseLf:         initialData?.baseLf         ?? 0,
     doorDeductions: initialData?.doorDeductions ?? 0,
@@ -175,17 +176,20 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
     set("windows", data.windows.map((w) => w.id === id ? { ...w, [field]: val } : w));
   }
 
+  const view: InteriorTrimData = { ...data, ...linkedValues };
+  const linked = linkedValues !== undefined;
+
   // ── Derived ──────────────────────────────────────────────────────────────
 
-  const waste       = 1 + data.wasteFactor / 100;
-  const sl          = data.stickLength;
+  const waste       = 1 + view.wasteFactor / 100;
+  const sl          = view.stickLength;
 
-  const netBaseLf   = Math.max(0, data.baseLf - data.doorDeductions * 3);
+  const netBaseLf   = Math.max(0, view.baseLf - view.doorDeductions * 3);
   const baseSticks  = sticks(netBaseLf, sl, waste);
-  const crownSticks = sticks(data.crownLf, sl, waste);
+  const crownSticks = sticks(view.crownLf, sl, waste);
 
-  const totalDoorCasingLf   = data.doors.reduce((s, d) => s + doorCasingLf(d), 0);
-  const totalWindowCasingLf = data.windows.reduce((s, w) => s + windowCasingLf(w), 0);
+  const totalDoorCasingLf   = view.doors.reduce((s, d) => s + doorCasingLf(d), 0);
+  const totalWindowCasingLf = view.windows.reduce((s, w) => s + windowCasingLf(w), 0);
   const doorCasingSticks    = sticks(totalDoorCasingLf, sl, waste);
   const windowCasingSticks  = sticks(totalWindowCasingLf, sl, waste);
   const totalSticks         = baseSticks + crownSticks + doorCasingSticks + windowCasingSticks;
@@ -206,7 +210,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
               {([8, 12, 16] as const).map((l) => (
                 <button key={l} type="button" onClick={() => set("stickLength", l)}
                   className={`flex-1 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                    data.stickLength === l
+                    view.stickLength === l
                       ? "bg-blue-600 border-blue-600 text-white"
                       : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
                   }`}>{l}&apos;</button>
@@ -216,7 +220,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
           {/* Waste */}
           <div>
             <label className={labelCls}>Waste %</label>
-            <input type="number" min="0" max="30" value={data.wasteFactor || ""}
+            <input type="number" min="0" max="30" value={view.wasteFactor || ""}
               onChange={(e) => set("wasteFactor", Number(e.target.value) || 0)}
               placeholder="10" className={inputCls} />
           </div>
@@ -229,21 +233,21 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className={labelCls}>Total wall LF</label>
-            <input type="number" min="0" value={data.baseLf || ""}
+            <input type="number" min="0" readOnly={linkedValues?.baseLf !== undefined} value={view.baseLf || ""}
               onChange={(e) => set("baseLf", Number(e.target.value) || 0)}
               placeholder="0" className={inputCls} />
-            <p className="text-[10px] text-slate-500 mt-1">From Wall Assembly total LF</p>
+            <p className="text-[10px] text-slate-500 mt-1">{linkedValues?.baseLf !== undefined ? "From Measurements rooms" : "Enter rooms on Measurements, or type a total"}</p>
           </div>
           <div>
             <label className={labelCls}>Door openings</label>
-            <input type="number" min="0" value={data.doorDeductions || ""}
+            <input type="number" min="0" readOnly={linkedValues?.doorDeductions !== undefined} value={view.doorDeductions || ""}
               onChange={(e) => set("doorDeductions", Number(e.target.value) || 0)}
               placeholder="0" className={inputCls} />
             <p className="text-[10px] text-slate-500 mt-1">Each deducts 3 lf of base</p>
           </div>
           <div>
             <label className={labelCls}>Crown Molding LF <span className="text-slate-600">(optional)</span></label>
-            <input type="number" min="0" value={data.crownLf || ""}
+            <input type="number" min="0" value={view.crownLf || ""}
               onChange={(e) => set("crownLf", Number(e.target.value) || 0)}
               placeholder="0" className={inputCls} />
           </div>
@@ -255,9 +259,9 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
           <div className="flex flex-wrap gap-2 mt-1">
             {TRIM_PROFILES.filter(p => p.value !== "").map((p) => (
               <button key={p.value} type="button"
-                onClick={() => set("baseProfile", data.baseProfile === p.value ? "" : p.value)}
+                onClick={() => set("baseProfile", view.baseProfile === p.value ? "" : p.value)}
                 className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                  data.baseProfile === p.value
+                  view.baseProfile === p.value
                     ? "bg-emerald-700 border-emerald-600 text-white"
                     : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300"
                 }`}>
@@ -265,19 +269,19 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
               </button>
             ))}
           </div>
-          {data.baseProfile && (
-            <p className="text-[10px] text-emerald-500 mt-1">Will search catalog for &quot;{data.baseProfile}&quot; base products first</p>
+          {view.baseProfile && (
+            <p className="text-[10px] text-emerald-500 mt-1">Will search catalog for &quot;{view.baseProfile}&quot; base products first</p>
           )}
         </div>
 
-        {data.baseLf > 0 && (
+        {view.baseLf > 0 && (
           <div className="rounded-lg bg-slate-700/40 border border-slate-700 px-4 py-2.5 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-            <span className="text-slate-400">Gross: <span className="text-white font-medium">{data.baseLf} lf</span></span>
-            {data.doorDeductions > 0 && (
-              <span className="text-slate-400">− {data.doorDeductions} doors × 3&apos; = <span className="text-white font-medium">{netBaseLf} lf net</span></span>
+            <span className="text-slate-400">Gross: <span className="text-white font-medium">{view.baseLf} lf</span></span>
+            {view.doorDeductions > 0 && (
+              <span className="text-slate-400">− {view.doorDeductions} doors × 3&apos; = <span className="text-white font-medium">{netBaseLf} lf net</span></span>
             )}
             <span className="text-slate-400">→ <span className="text-white font-medium">{baseSticks} sticks</span> ({sl}&apos; ea)</span>
-            {data.crownLf > 0 && (
+            {view.crownLf > 0 && (
               <span className="text-slate-400">Crown: <span className="text-white font-medium">{crownSticks} sticks</span></span>
             )}
           </div>
@@ -299,9 +303,9 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
           <div className="flex flex-wrap gap-2 mt-1">
             {TRIM_PROFILES.filter(p => p.value !== "").map((p) => (
               <button key={p.value} type="button"
-                onClick={() => set("casingProfile", data.casingProfile === p.value ? "" : p.value)}
+                onClick={() => set("casingProfile", view.casingProfile === p.value ? "" : p.value)}
                 className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                  data.casingProfile === p.value
+                  view.casingProfile === p.value
                     ? "bg-blue-700 border-blue-600 text-white"
                     : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300"
                 }`}>
@@ -309,19 +313,21 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
               </button>
             ))}
           </div>
-          {data.casingProfile && (
-            <p className="text-[10px] text-blue-400 mt-1">Will search catalog for &quot;{data.casingProfile}&quot; casing products first</p>
+          {view.casingProfile && (
+            <p className="text-[10px] text-blue-400 mt-1">Will search catalog for &quot;{view.casingProfile}&quot; casing products first</p>
           )}
         </div>
 
+        {linked && <p className="text-xs text-slate-500">Doors are entered on the Measurements tab.</p>}
+        {!linked && <>
         <p className="text-xs text-slate-500">Interior = both sides · Exterior = one side</p>
 
-        {data.doors.length === 0 && (
+        {view.doors.length === 0 && (
           <p className="text-xs text-slate-500">No doors added.</p>
         )}
 
         <div className="space-y-3">
-          {data.doors.map((d, idx) => {
+          {view.doors.map((d, idx) => {
             const lf = doorCasingLf(d);
             return (
               <div key={d.id} className="rounded-lg bg-slate-700/40 border border-slate-700 p-4 space-y-3">
@@ -344,7 +350,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
                       </button>
                     ))}
                   </div>
-                  <RemoveBtn onClick={() => set("doors", data.doors.filter((x) => x.id !== d.id))} />
+                  <RemoveBtn onClick={() => set("doors", view.doors.filter((x) => x.id !== d.id))} />
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
@@ -376,7 +382,8 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
             );
           })}
         </div>
-        <AddBtn onClick={() => set("doors", [...data.doors, newDoor()])} label="Add Door" />
+        <AddBtn onClick={() => set("doors", [...view.doors, newDoor()])} label="Add Door" />
+        </>}
       </div>
 
       {/* ── Window Casing ── */}
@@ -384,8 +391,8 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Window Casing</h3>
           <div className="flex items-center gap-3">
-            {data.casingProfile && (
-              <span className="text-xs text-blue-400 font-medium capitalize">{data.casingProfile} profile</span>
+            {view.casingProfile && (
+              <span className="text-xs text-blue-400 font-medium capitalize">{view.casingProfile} profile</span>
             )}
             {totalWindowCasingLf > 0 && (
               <span className="text-xs text-slate-400">{totalWindowCasingLf.toFixed(1)} lf · {windowCasingSticks} sticks</span>
@@ -393,12 +400,14 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
           </div>
         </div>
 
-        {data.windows.length === 0 && (
+        {linked && <p className="text-xs text-slate-500">Windows are entered on the Measurements tab.</p>}
+        {!linked && <>
+        {view.windows.length === 0 && (
           <p className="text-xs text-slate-500">No windows added.</p>
         )}
 
         <div className="space-y-3">
-          {data.windows.map((w, idx) => {
+          {view.windows.map((w, idx) => {
             const lf = windowCasingLf(w);
             return (
               <div key={w.id} className="rounded-lg bg-slate-700/40 border border-slate-700 p-4 space-y-3">
@@ -408,7 +417,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
                     onChange={(e) => patchWindow(w.id, "label", e.target.value)}
                     placeholder="e.g. Living room window"
                     className={inputCls + " flex-1"} />
-                  <RemoveBtn onClick={() => set("windows", data.windows.filter((x) => x.id !== w.id))} />
+                  <RemoveBtn onClick={() => set("windows", view.windows.filter((x) => x.id !== w.id))} />
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
@@ -439,7 +448,8 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
             );
           })}
         </div>
-        <AddBtn onClick={() => set("windows", [...data.windows, newWindow()])} label="Add Window" />
+        <AddBtn onClick={() => set("windows", [...view.windows, newWindow()])} label="Add Window" />
+        </>}
       </div>
 
       {/* ── Summary ── */}
@@ -458,7 +468,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
               <div className="bg-slate-700/50 rounded-lg px-4 py-3">
                 <p className="text-xs text-slate-500 mb-1">Crown Molding</p>
                 <p className="text-lg font-bold text-white">{crownSticks}</p>
-                <p className="text-xs text-slate-400">sticks · {data.crownLf} lf</p>
+                <p className="text-xs text-slate-400">sticks · {view.crownLf} lf</p>
               </div>
             )}
             {doorCasingSticks > 0 && (
@@ -477,7 +487,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange }: Prop
             )}
           </div>
           <p className="text-xs text-slate-500">
-            All counts include {data.wasteFactor}% waste · {sl}&apos; sticks
+            All counts include {view.wasteFactor}% waste · {sl}&apos; sticks
           </p>
         </div>
       )}

@@ -3,9 +3,11 @@
 import { useState } from "react";
 
 export interface PlaneEntry { id: string; label: string; area: number }
-export type RoofJobType = "rr" | "new" | "layover"
+export type RoofJobType = "rr" | "new" | "layover" | "repair"
+export type RoofMaterial = "shingle" | "shake"
 export interface RoofingData {
   jobType: RoofJobType
+  roofMaterial: RoofMaterial
   planes: PlaneEntry[]
   wasteFactor: number
   pitch: string
@@ -49,6 +51,12 @@ const JOB_TYPES: { value: RoofJobType; label: string }[] = [
   { value: "rr", label: "R&R" },
   { value: "new", label: "New Construction" },
   { value: "layover", label: "Layover" },
+  { value: "repair", label: "Repair" },
+];
+
+const ROOF_MATERIALS: { value: RoofMaterial; label: string }[] = [
+  { value: "shingle", label: "Shingle" },
+  { value: "shake", label: "Cedar Shake" },
 ];
 
 const PITCH_OPTIONS = [
@@ -93,6 +101,7 @@ function SmallField({
 export default function RoofingMeasurements({ initialData, onChange, linked = false }: Props) {
   const [data, setData] = useState<RoofingData>({
     jobType: initialData?.jobType ?? "rr",
+    roofMaterial: initialData?.roofMaterial ?? "shingle",
     planes: initialData?.planes ?? [newPlane()],
     wasteFactor: initialData?.wasteFactor ?? 15,
     pitch: initialData?.pitch ?? "up_to_6_12",
@@ -243,6 +252,24 @@ export default function RoofingMeasurements({ initialData, onChange, linked = fa
       {/* Pitch, Layers, Waste */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Roof Details</h3>
+        <div>
+          <label className={labelCls}>Roof Material</label>
+          <div className="flex flex-wrap gap-2">
+            {ROOF_MATERIALS.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => update("roofMaterial", m.value)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  data.roofMaterial === m.value
+                    ? "bg-blue-600 border-blue-500 text-white"
+                    : "border-slate-600 text-slate-400 hover:text-white hover:border-slate-500"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div>
           <label className={labelCls}>Job Type</label>
           <div className="flex flex-wrap gap-2">

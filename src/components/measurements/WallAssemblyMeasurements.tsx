@@ -71,6 +71,8 @@ export interface WallAssemblyData {
 interface Props {
   initialData?: Partial<WallAssemblyData>;
   onChange: (data: WallAssemblyData) => void;
+  // Doors, windows and corners come from the Measurements tab
+  linked?: boolean;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -234,7 +236,7 @@ function PresetBtn({ label, onClick }: { label: string; onClick: () => void }) {
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function WallAssemblyMeasurements({ initialData, onChange }: Props) {
+export default function WallAssemblyMeasurements({ initialData, onChange, linked = false }: Props) {
   const [data, setData] = useState<WallAssemblyData>({
     walls:           initialData?.walls           ?? [newWall()],
     closets:         initialData?.closets         ?? [],
@@ -481,6 +483,7 @@ export default function WallAssemblyMeasurements({ initialData, onChange }: Prop
         <AddBtn onClick={() => set("closets", [...data.closets, newCloset()])} label="Add Closet / Nook" />
       </div>
 
+      {!linked && <>
       {/* ── Doors ── */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -636,6 +639,8 @@ export default function WallAssemblyMeasurements({ initialData, onChange }: Prop
         <AddBtn onClick={() => set("windows", [...data.windows, newWindow()])} label="Add Window" />
       </div>
 
+      </>}
+
       {/* ── Ceiling Sections ── */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -721,7 +726,7 @@ export default function WallAssemblyMeasurements({ initialData, onChange }: Prop
               ))}
             </div>
           </div>
-          <Stepper label="Corner Assemblies" value={data.corners} onChange={(v) => set("corners", v)} />
+          {!linked && <Stepper label="Corner Assemblies" value={data.corners} onChange={(v) => set("corners", v)} />}
         </div>
 
         {/* ── Accessories (rep-selected) ── */}

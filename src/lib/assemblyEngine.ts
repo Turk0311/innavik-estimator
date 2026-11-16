@@ -244,6 +244,17 @@ const PITCH_RISE: Record<string, number> = {
   'up_to_6_12': 6, '7_8_12': 8, '9_10_12': 10, '11_12_12': 12, 'mansard': 12, 'flat': 0,
 }
 
+const SHAKE_RR_LABOR_NAME: Record<string, string> = {
+  'up_to_6_12': 'Shake/Slate up to 6/12',
+  '7_8_12':     'Shake/Slate 7/12-8/12',
+  '9_10_12':    'Shake/Slate 9/12-10/12',
+  '11_12_12':   'Shake/Slate 11/12-12/12',
+  'mansard':    'Shake/Slate Mansard',
+}
+const SHAKE_RR_LABOR: Record<string, number> = {
+  'up_to_6_12': 190, '7_8_12': 210, '9_10_12': 210, '11_12_12': 250, 'mansard': 285,
+}
+
 // Pitch → exact line name on the admin Labor page
 const ROOFING_RR_LABOR_NAME: Record<string, string> = {
   'up_to_6_12': 'R&R Roofing up to 6/12',
@@ -293,7 +304,10 @@ export function calculateRoofingAssembly(
 
   const wastePct = num(measurements.wasteFactor, 15)
   const pitch = String(measurements.pitch ?? 'up_to_6_12')
-  const jobType = String(measurements.jobType ?? 'rr') as 'rr' | 'new' | 'layover'
+  const jobType = String(measurements.jobType ?? 'rr') as 'rr' | 'new' | 'layover' | 'repair'
+  const isShake = measurements.roofMaterial === 'shake'
+  // A repair prices only what was measured (ridge, vents, penetrations) — no field roof
+  const fullRoof = jobType !== 'repair'
   const layers = num(measurements.layers, 1)
   const ridgeLf = num(measurements.ridge)
   const hipLf = num(measurements.hip)
@@ -323,7 +337,7 @@ export function calculateRoofingAssembly(
   const caulkTubes    = num(measurements.caulkTubes)
   const stapleBoxes   = num(measurements.stapleBoxes)
 
-  if (sqf <= 0) return []
+  if (sqf <= 0 && fullRoof) return []
 
   const adjustedSqf = sqf * (1 + wastePct / 100)
   const squares = ceil(adjustedSqf / 100)
@@ -355,6 +369,26 @@ export function calculateRoofingAssembly(
   }
   const isGAF = (p: Product) => p.name.toLowerCase().includes('gaf')
 
+  if (fullRoof && isShake) {
+    const shakeProduct = products.find(p => {
+      const n = p.name.toLowerCase()
+      return n.includes('shake') && !n.includes('ridge')
+    })
+    items.push({
+      description: shakeProduct?.name ?? 'Cedar shakes — add product price',
+      quantity: squares,
+      unit: 'sq',
+      cost: shakeProduct?.cost ?? 0,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      packages: 'good,better,best',
+      category: 'Roofing',
+      isLabor: false,
+      productId: shakeProduct?.id,
+    })
+  }
+
+  if (fullRoof && !isShake) {
   // 2. Shingles — require shingle-specific terms; exclude tape/adhesive/flashing/seal
   const SHINGLE_EXCLUDE = ['tape', 'adhesive', 'flashing', 'seal', 'window', 'caulk', 'cement']
   const shingleProduct = products.find(p => {
@@ -396,6 +430,9 @@ export function calculateRoofingAssembly(
     })
   }
 
+  }
+
+  if (fullRoof) {
   // 3. Underlayment — GOOD: Tri-Built synthetic  |  BETTER: GAF Feltbuster
   const underlayKeywords = ['felt', 'synthetic', 'underlayment']
   const underlayGood = products.find(p => isTriBuilt(p) && underlayKeywords.some(k => p.name.toLowerCase().includes(k)))
@@ -429,8 +466,10 @@ export function calculateRoofingAssembly(
     })
   }
 
+  }
+
   // 4. Starter strip — GOOD: Tri-Built  |  BETTER: GAF ProStarter
-  if (eavesLf > 0) {
+  if (fullRoof && !isShake && eavesLf > 0) {
     const starterGood = products.find(p => isTriBuilt(p) && p.name.toLowerCase().includes('starter'))
       ?? findProduct(products, 'starter', 'starter strip')
     items.push({
@@ -463,15 +502,34 @@ export function calculateRoofingAssembly(
     }
   }
 
-  // 5. Ridge cap — GOOD+BETTER: GAF Seal-A-Ridge  |  BEST: GAF TimberTex
-  // No TRI-BUILT ridge cap — GAF Seal-A-Ridge covers both Good and Better packages.
-  if (ridgeLf + hipLf > 0) {
+  // 5. Ridge cap — shake: cedar shake ridge, 15 lf per bundle
+  if (isShake && ridgeLf + hipLf > 0) {
+    const shakeRidge = products.find(p => {
+      const n = p.name.toLowerCase()
+      return n.includes('shake') && n.includes('ridge')
+    })
+    items.push({
+      description: shakeRidge?.name ?? 'Cedar Shake Ridge — add product price',
+      quantity: ceil((ridgeLf + hipLf) / 15),
+      unit: 'bundle',
+      cost: shakeRidge?.cost ?? 0,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      packages: 'good,better,best',
+      category: 'Roofing',
+      isLabor: false,
+      productId: shakeRidge?.id,
+    })
+  }
+
+  // Shingle ridge cap — GOOD+BETTER: GAF Seal-A-Ridge (28 lf/bundle)  |  BEST: GAF TimberTex
+  if (!isShake && ridgeLf + hipLf > 0) {
     const ridgeBetter = products.find(p => p.name.toLowerCase().includes('seal-a-ridge') || p.name.toLowerCase().includes('sealridge'))
       ?? products.find(p => isGAF(p) && (p.name.toLowerCase().includes('ridge') || p.name.toLowerCase().includes('cap')))
     if (ridgeBetter) {
       items.push({
         description: ridgeBetter.name,
-        quantity: ceil((ridgeLf + hipLf) / 22),
+        quantity: ceil((ridgeLf + hipLf) / 28),
         unit: 'bundle',
         cost: ridgeBetter.cost,
         markup: DEFAULT_MARKUP,
@@ -501,17 +559,19 @@ export function calculateRoofingAssembly(
     }
   }
 
-  // 5c. Ridge vent — uses separate ridgeVentLf input (not ridge length); sold in 20' sections
+  // 5c. Ridge vent — shingle: GAF Snow Country Advanced, 4' pieces  |  shake: 20' roll
   if (ridgeVentLf > 0) {
-    const ridgeVentProduct = products.find(p =>
+    const anyRidgeVent = products.find(p =>
       p.name.toLowerCase().includes('ridge vent') || p.name.toLowerCase().includes('ridge-vent')
-    ) ?? products.find(p =>
-      p.name.toLowerCase().includes('ridge') && p.name.toLowerCase().includes('vent')
     )
+    const ridgeVentProduct = isShake
+      ? products.find(p => p.name.toLowerCase().includes('ridge vent') && p.name.includes("20'")) ?? anyRidgeVent
+      : products.find(p => p.name.toLowerCase().includes('snow country')) ?? anyRidgeVent
+    const pieceLf = isShake ? 20 : 4
     if (ridgeVentProduct) {
       items.push({
         description: ridgeVentProduct.name,
-        quantity: ceil(ridgeVentLf / 20),
+        quantity: ceil(ridgeVentLf / pieceLf),
         unit: ridgeVentProduct.unit ?? 'ea',
         cost: ridgeVentProduct.cost,
         markup: DEFAULT_MARKUP,
@@ -524,6 +584,7 @@ export function calculateRoofingAssembly(
     }
   }
 
+  if (fullRoof) {
   // 10' sticks after the roof waste factor
   const sticks10 = (lf: number) => ceil(Math.round(lf * (1 + wastePct / 100) * 100) / 1000)
 
@@ -616,6 +677,8 @@ export function calculateRoofingAssembly(
     isLabor: false,
     productId: nailProduct?.id,
   })
+
+  }
 
   // 11. Skylight flashing
   if (skylights > 0) {
@@ -802,7 +865,12 @@ export function calculateRoofingAssembly(
   const rrRate = ROOFING_RR_LABOR[pitch] ?? ROOFING_RR_LABOR['up_to_6_12']
   const ncName = ROOFING_NC_LABOR_NAME[pitch] ?? rrName
   const ncRate = ROOFING_NC_LABOR[pitch] ?? rrRate
-  if (jobType === 'new') {
+  if (jobType === 'repair') {
+    // Repairs carry only the per-foot and per-item lines below
+  } else if (isShake) {
+    pushLabor(SHAKE_RR_LABOR_NAME[pitch] ?? SHAKE_RR_LABOR_NAME['up_to_6_12'], laborSquares, 'sq',
+      SHAKE_RR_LABOR[pitch] ?? SHAKE_RR_LABOR['up_to_6_12'])
+  } else if (jobType === 'new') {
     pushLabor(ncName, laborSquares, 'sq', ncRate)
   } else if (jobType === 'layover') {
     // Until Layover lines exist on the Labor page, price at the New Con rate
@@ -1917,6 +1985,16 @@ export function calculatePaintingAssembly(
     totalSqf = surfaces.reduce((sum: number, s: unknown) => {
       const surface = s as { length?: unknown; width?: unknown }
       return sum + num(surface.length) * num(surface.width)
+    }, 0)
+  }
+
+  const rooms = measurements.rooms
+  if (Array.isArray(rooms)) {
+    totalSqf += rooms.reduce((sum: number, r: unknown) => {
+      const room = r as { length?: unknown; width?: unknown; height?: unknown; ceiling?: unknown }
+      const l = num(room.length)
+      const w = num(room.width)
+      return sum + 2 * (l + w) * num(room.height) + (room.ceiling === true ? l * w : 0)
     }, 0)
   }
 
@@ -3759,87 +3837,59 @@ export function calculateDeckFramingAccessoriesAssembly(
 // ---------------------------------------------------------------------------
 export function calculateGutterAssembly(
   measurements: MeasurementData,
-  products: Product[]
+  allProducts: Product[]
 ): AssemblyItem[] {
   const linearFt = num(measurements.linearFt)
   const downspouts = num(measurements.downspouts)
-  const corners = num(measurements.corners)
+  // Downspouts are bought in 10' lengths; without a total, assume one length each
+  const downspoutLf = num(measurements.downspoutLf) || downspouts * 10
+  const insideMiters = num(measurements.insideMiters)
+  const outsideMiters = num(measurements.outsideMiters) || num(measurements.corners)
   const guards = Boolean(measurements.guards)
+  const size = measurements.gutterSize === '6' ? '6' : '5'
+  const ds = measurements.downspoutSize === '3x4' ? '3x4' : '2x3'
+  const dsName = ds === '3x4' ? '3"x4"' : '2"x3"'
 
   if (linearFt <= 0) return []
 
+  const isLabor = (p: Product) => p.category.toLowerCase().includes('labor')
+  const products = allProducts.filter((p) => !isLabor(p))
+  const laborCatalog = allProducts.filter(isLabor)
+  const sizeTokens = (inches: string) => [`${inches}"`, `${inches} in`, `${inches}-inch`, `${inches} inch`]
+  const sized = (inches: string, ...keywords: string[]) =>
+    sizeTokens(inches).map((t) => findProductAnd(products, t, ...keywords)).find(Boolean)
+  const dsTokens = ds === '3x4' ? ['3"x4"', '3x4', '3" x 4"'] : ['2"x3"', '2x3', '2" x 3"']
+  const dsProduct = dsTokens.map((t) => findProductAnd(products, t, 'downspout')).find(Boolean)
+
   const items: AssemblyItem[] = []
-
-  const gutterProduct = findProduct(products, 'gutter', 'guttering')
-  items.push({
-    description: gutterProduct?.name ?? 'Gutters',
-    quantity: linearFt,
-    unit: 'lf',
-    cost: gutterProduct?.cost ?? DEFAULT_COSTS.gutter,
-    markup: DEFAULT_MARKUP,
-    tier: gutterProduct?.tier ?? 'GOOD',
-    category: 'Gutters',
-    isLabor: false,
-    productId: gutterProduct?.id,
-  })
-
-  if (downspouts > 0) {
-    const downspoutProduct = findProduct(products, 'downspout')
-    items.push({
-      description: downspoutProduct?.name ?? 'Downspouts',
-      quantity: downspouts,
-      unit: 'ea',
-      cost: downspoutProduct?.cost ?? DEFAULT_COSTS.downspout,
-      markup: DEFAULT_MARKUP,
-      tier: downspoutProduct?.tier ?? 'GOOD',
-      category: 'Gutters',
-      isLabor: false,
-      productId: downspoutProduct?.id,
-    })
+  const push = (description: string, quantity: number, unit: string, cost: number, isLaborLine: boolean, productId?: string) => {
+    if (quantity <= 0) return
+    items.push({ description, quantity, unit, cost, markup: DEFAULT_MARKUP, tier: 'GOOD', category: 'Gutters', isLabor: isLaborLine, productId })
+  }
+  const labor = (name: string, quantity: number, unit: string, fallbackCost: number) => {
+    const p = laborCatalog.find((l) => l.name.toLowerCase() === name.toLowerCase())
+    push(p?.name ?? name, quantity, unit, p?.cost || fallbackCost, true, p?.id)
   }
 
-  if (corners > 0) {
-    const cornerProduct = findProduct(products, 'gutter corner', 'corner')
-    items.push({
-      description: cornerProduct?.name ?? 'Gutter corners',
-      quantity: corners,
-      unit: 'ea',
-      cost: cornerProduct?.cost ?? DEFAULT_COSTS.gutterCorner,
-      markup: DEFAULT_MARKUP,
-      tier: cornerProduct?.tier ?? 'GOOD',
-      category: 'Gutters',
-      isLabor: false,
-      productId: cornerProduct?.id,
-    })
-  }
+  const gutterProduct = sized(size, 'gutter')
+  push(gutterProduct?.name ?? `${size}" Gutter`, linearFt, 'lf', gutterProduct?.cost ?? DEFAULT_COSTS.gutter, false, gutterProduct?.id)
+
+  push(dsProduct?.name ?? `${dsName}x10' Downspout`, ceil(downspoutLf / 10), 'ea',
+    dsProduct?.cost ?? DEFAULT_COSTS.downspout, false, dsProduct?.id)
+
+  const insideProduct = sized(size, 'inside', 'miter') ?? sized(size, 'inside', 'mitre')
+  push(insideProduct?.name ?? `${size}" Inside Miter`, insideMiters, 'ea', insideProduct?.cost ?? DEFAULT_COSTS.gutterCorner, false, insideProduct?.id)
+  const outsideProduct = sized(size, 'outside', 'miter') ?? sized(size, 'outside', 'mitre')
+  push(outsideProduct?.name ?? `${size}" Outside Miter`, outsideMiters, 'ea', outsideProduct?.cost ?? DEFAULT_COSTS.gutterCorner, false, outsideProduct?.id)
 
   if (guards) {
     const guardProduct = findProduct(products, 'gutter guard', 'leaf guard')
-    items.push({
-      description: guardProduct?.name ?? 'Gutter guards',
-      quantity: linearFt,
-      unit: 'lf',
-      cost: guardProduct?.cost ?? DEFAULT_COSTS.gutterGuard,
-      markup: DEFAULT_MARKUP,
-      tier: guardProduct?.tier ?? 'GOOD',
-      category: 'Gutters',
-      isLabor: false,
-      productId: guardProduct?.id,
-    })
+    push(guardProduct?.name ?? 'Gutter guards', linearFt, 'lf', guardProduct?.cost ?? DEFAULT_COSTS.gutterGuard, false, guardProduct?.id)
   }
 
-  const laborProduct = findProduct(products, 'gutter labor', 'labor')
-  items.push({
-    description: laborProduct?.name ?? 'Gutter installation labor',
-    quantity: linearFt,
-    unit: 'lf',
-    cost: laborProduct?.cost ?? DEFAULT_COSTS.gutterLabor,
-    markup: DEFAULT_MARKUP,
-    tier: laborProduct?.tier ?? 'GOOD',
-    category: 'Gutters',
-    isLabor: true,
-    productId: laborProduct?.id,
-  })
+  labor(`${size}" Gutter`, linearFt, 'lf', DEFAULT_COSTS.gutterLabor)
+  labor(`${ds} Downspout`, downspoutLf, 'lf', DEFAULT_COSTS.gutterLabor)
+  if (guards) labor('Gutter Guard', linearFt, 'lf', DEFAULT_COSTS.gutterGuard)
 
   return items
 }

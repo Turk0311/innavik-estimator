@@ -22,6 +22,7 @@ export interface DrywallAccessoriesData {
 interface Props {
   initialData?: Partial<DrywallAccessoriesData>;
   onChange: (data: DrywallAccessoriesData) => void;
+  linkedValues?: Partial<DrywallAccessoriesData>;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -45,10 +46,10 @@ const TEXTURE_OPTIONS: { val: DrywallAccessoriesData["textureType"]; label: stri
 // ── Sub-components ─────────────────────────────────────────────────────────
 
 function NumInput({
-  label, hint, value, onChange, unit,
+  label, hint, value, onChange, unit, locked = false,
 }: {
   label: string; hint?: string; value: number;
-  onChange: (v: number) => void; unit?: string;
+  onChange: (v: number) => void; unit?: string; locked?: boolean;
 }) {
   return (
     <div>
@@ -57,7 +58,7 @@ function NumInput({
         {unit && <span className="text-slate-500 ml-1">({unit})</span>}
       </label>
       {hint && <p className="text-[10px] text-slate-600 mb-1">{hint}</p>}
-      <input type="number" min="0"
+      <input type="number" min="0" readOnly={locked} title={locked ? "From Measurements" : undefined}
         value={value === 0 ? "" : value}
         onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
         placeholder="0" className={inputCls} />
@@ -67,7 +68,7 @@ function NumInput({
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function DrywallAccessoriesMeasurements({ initialData, onChange }: Props) {
+export default function DrywallAccessoriesMeasurements({ initialData, onChange, linkedValues = {} }: Props) {
   const [data, setData] = useState<DrywallAccessoriesData>({
     cornerBeadLf:  initialData?.cornerBeadLf  ?? 0,
     jBeadLf:       initialData?.jBeadLf       ?? 0,
@@ -82,16 +83,19 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
     onChange(next);
   }
 
+  const view: DrywallAccessoriesData = { ...data, ...linkedValues };
+  const isLocked = (key: keyof DrywallAccessoriesData) => linkedValues[key] !== undefined;
+
   // ── Derived ──────────────────────────────────────────────────────────────
 
-  const cornerBeadSticks = data.cornerBeadLf > 0
-    ? Math.ceil(data.cornerBeadLf / CORNER_BEAD_STICK) : 0;
-  const primerGallons    = data.primerSqft > 0
-    ? Math.ceil(data.primerSqft / PRIMER_SQFT_PER_GAL) : 0;
-  const textureCans      = (data.textureType === "orange-peel" || data.textureType === "knockdown") && data.textureSqft > 0
-    ? Math.ceil(data.textureSqft / TEXTURE_SQFT_PER_CAN) : 0;
-  const textureBuckets   = data.textureType === "smooth" && data.textureSqft > 0
-    ? Math.ceil(data.textureSqft / TEXTURE_SQFT_PER_GAL) : 0;
+  const cornerBeadSticks = view.cornerBeadLf > 0
+    ? Math.ceil(view.cornerBeadLf / CORNER_BEAD_STICK) : 0;
+  const primerGallons    = view.primerSqft > 0
+    ? Math.ceil(view.primerSqft / PRIMER_SQFT_PER_GAL) : 0;
+  const textureCans      = (view.textureType === "orange-peel" || view.textureType === "knockdown") && view.textureSqft > 0
+    ? Math.ceil(view.textureSqft / TEXTURE_SQFT_PER_CAN) : 0;
+  const textureBuckets   = view.textureType === "smooth" && view.textureSqft > 0
+    ? Math.ceil(view.textureSqft / TEXTURE_SQFT_PER_GAL) : 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -107,7 +111,8 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
               label="Corner Bead"
               hint="Outside corners — enter total linear ft"
               unit="lf"
-              value={data.cornerBeadLf}
+              value={view.cornerBeadLf}
+              locked={isLocked("cornerBeadLf")}
               onChange={(v) => set("cornerBeadLf", v)}
             />
             {cornerBeadSticks > 0 && (
@@ -122,12 +127,13 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
               label="J-Bead / L-Bead"
               hint="Edge trim at windows, doors, unfinished borders"
               unit="lf"
-              value={data.jBeadLf}
+              value={view.jBeadLf}
+              locked={isLocked("jBeadLf")}
               onChange={(v) => set("jBeadLf", v)}
             />
-            {data.jBeadLf > 0 && (
+            {view.jBeadLf > 0 && (
               <p className="text-xs text-slate-400 mt-1.5">
-                → <span className="text-white font-medium">{Math.ceil(data.jBeadLf / 10)} sticks</span>
+                → <span className="text-white font-medium">{Math.ceil(view.jBeadLf / 10)} sticks</span>
                 <span className="text-slate-500"> (10 ft ea)</span>
               </p>
             )}
@@ -144,7 +150,8 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
               label="Area to prime"
               hint={`1 gallon ≈ ${PRIMER_SQFT_PER_GAL} sqft`}
               unit="sqft"
-              value={data.primerSqft}
+              value={view.primerSqft}
+              locked={isLocked("primerSqft")}
               onChange={(v) => set("primerSqft", v)}
             />
             {primerGallons > 0 && (
@@ -167,7 +174,7 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
             {TEXTURE_OPTIONS.map((o) => (
               <button key={o.val} type="button" onClick={() => set("textureType", o.val)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                  data.textureType === o.val
+                  view.textureType === o.val
                     ? "bg-blue-600 border-blue-600 text-white"
                     : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
                 }`}>
@@ -178,18 +185,19 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
         </div>
 
         {/* Sqft — only if texture selected */}
-        {data.textureType !== "none" && (
+        {view.textureType !== "none" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <NumInput
                 label="Area to texture"
                 hint={
-                  data.textureType === "smooth"
+                  view.textureType === "smooth"
                     ? `1 bucket ≈ ${TEXTURE_SQFT_PER_GAL} sqft`
                     : `1 can ≈ ${TEXTURE_SQFT_PER_CAN} sqft`
                 }
                 unit="sqft"
-                value={data.textureSqft}
+                value={view.textureSqft}
+                locked={isLocked("textureSqft")}
                 onChange={(v) => set("textureSqft", v)}
               />
               {(textureCans > 0 || textureBuckets > 0) && (
@@ -206,7 +214,7 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
       </div>
 
       {/* ── Summary ── */}
-      {(cornerBeadSticks > 0 || data.jBeadLf > 0 || primerGallons > 0 || textureCans > 0 || textureBuckets > 0) && (
+      {(cornerBeadSticks > 0 || view.jBeadLf > 0 || primerGallons > 0 || textureCans > 0 || textureBuckets > 0) && (
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Accessories Summary</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -214,14 +222,14 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
               <div className="bg-slate-700/50 rounded-lg px-4 py-3">
                 <p className="text-xs text-slate-500 mb-1">Corner Bead</p>
                 <p className="text-lg font-bold text-white">{cornerBeadSticks}</p>
-                <p className="text-xs text-slate-400">sticks · {data.cornerBeadLf} lf</p>
+                <p className="text-xs text-slate-400">sticks · {view.cornerBeadLf} lf</p>
               </div>
             )}
-            {data.jBeadLf > 0 && (
+            {view.jBeadLf > 0 && (
               <div className="bg-slate-700/50 rounded-lg px-4 py-3">
                 <p className="text-xs text-slate-500 mb-1">J-Bead</p>
-                <p className="text-lg font-bold text-white">{Math.ceil(data.jBeadLf / 10)}</p>
-                <p className="text-xs text-slate-400">sticks · {data.jBeadLf} lf</p>
+                <p className="text-lg font-bold text-white">{Math.ceil(view.jBeadLf / 10)}</p>
+                <p className="text-xs text-slate-400">sticks · {view.jBeadLf} lf</p>
               </div>
             )}
             {primerGallons > 0 && (
@@ -233,7 +241,7 @@ export default function DrywallAccessoriesMeasurements({ initialData, onChange }
             )}
             {(textureCans > 0 || textureBuckets > 0) && (
               <div className="bg-slate-700/50 rounded-lg px-4 py-3">
-                <p className="text-xs text-slate-500 mb-1">Texture ({data.textureType})</p>
+                <p className="text-xs text-slate-500 mb-1">Texture ({view.textureType})</p>
                 <p className="text-lg font-bold text-white">{textureCans || textureBuckets}</p>
                 <p className="text-xs text-slate-400">{textureCans > 0 ? "cans" : "buckets"}</p>
               </div>

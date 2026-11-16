@@ -1855,10 +1855,12 @@ function summarizeMeasurement(tradeType: string, data: unknown): MLine[] {
     case "Gutters": {
       const lf = d.linearFt as number;
       const ds = d.downspouts as number;
-      const corners = d.corners as number;
-      if (lf) lines.push({ label: "Length", value: `${fmtN(lf)} LF` });
-      if (ds) lines.push({ label: "Downspouts", value: String(ds) });
-      if (corners) lines.push({ label: "Corners", value: String(corners) });
+      const inside = d.insideMiters as number;
+      const outside = (d.outsideMiters as number) || (d.corners as number);
+      if (lf) lines.push({ label: d.gutterSize === "6" ? '6" gutter' : '5" gutter', value: `${fmtN(lf)} LF` });
+      if (ds) lines.push({ label: d.downspoutSize === "3x4" ? '3"x4" downspouts' : '2"x3" downspouts', value: String(ds) });
+      if (inside) lines.push({ label: "Inside miters", value: String(inside) });
+      if (outside) lines.push({ label: "Outside miters", value: String(outside) });
       break;
     }
     case "Decking": {
@@ -1919,8 +1921,10 @@ function summarizeMeasurement(tradeType: string, data: unknown): MLine[] {
     }
     case "Painting": {
       const surfaces = (d.surfaces as Array<{ length: number; width: number }>) ?? [];
-      const sqft = surfaces.reduce((s, surf) => s + (surf.length || 0) * (surf.width || 0), 0);
-      if (sqft) lines.push({ label: "Surface area", value: `${fmtN(sqft)} sqft` });
+      const rooms = (d.rooms as Array<{ length: number; width: number; height: number; ceiling: boolean }>) ?? [];
+      const sqft = surfaces.reduce((s, surf) => s + (surf.length || 0) * (surf.width || 0), 0)
+        + rooms.reduce((s, r) => s + 2 * ((r.length || 0) + (r.width || 0)) * (r.height || 0) + (r.ceiling ? (r.length || 0) * (r.width || 0) : 0), 0);
+      if (sqft) lines.push({ label: "Paint area", value: `${fmtN(sqft)} sqft` });
       const baseLf = d.baseLf as number;
       const casingLf = d.casingLf as number;
       if (baseLf) lines.push({ label: "Base", value: `${fmtN(baseLf)} LF` });

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import JobMeasurementsForm from "@/components/measurements/JobMeasurementsForm";
 import {
   type JobMeasurements, JOB_TRADE_TYPE, LINKED_TABS,
-  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab,
+  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab, stripRoomEntries, roomPaintArea,
 } from "@/lib/jobMeasurements";
 import { useRouter } from "next/navigation";
 import RoofingMeasurements, { type RoofingData } from "@/components/measurements/RoofingMeasurements";
@@ -27,7 +27,7 @@ import InsulationAccessoriesMeasurements, { type InsulationAccessoriesData } fro
 import DrywallMeasurements, { type DrywallData } from "@/components/measurements/DrywallMeasurements";
 import DrywallAccessoriesMeasurements, { type DrywallAccessoriesData } from "@/components/measurements/DrywallAccessoriesMeasurements";
 import WindowsDoorsMeasurements, { type WindowsDoorData } from "@/components/measurements/WindowsDoorsMeasurements";
-import FlooringMeasurements, { type FlooringData } from "@/components/measurements/FlooringMeasurements";
+import FlooringMeasurements, { type FlooringData, type FloorRoom } from "@/components/measurements/FlooringMeasurements";
 import TileMeasurements, { type TileData } from "@/components/measurements/TileMeasurements";
 import BathroomMeasurements, { type BathroomData } from "@/components/measurements/BathroomMeasurements";
 import ExteriorTrimMeasurements, { type ExteriorTrimData } from "@/components/measurements/ExteriorTrimMeasurements";
@@ -204,7 +204,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
     () => savedAs<InsulationAccessoriesData>(savedMeasurements, "Insulation Accessories") ?? {} as InsulationAccessoriesData
   );
   const [drywallData, setDrywallData] = useState<DrywallData>(
-    () => savedAs<DrywallData>(savedMeasurements, "Drywall") ?? {} as DrywallData
+    () => stripRoomEntries(savedAs<DrywallData>(savedMeasurements, "Drywall") ?? {} as DrywallData)
   );
   const [drywallAccData, setDrywallAccData] = useState<DrywallAccessoriesData>(
     () => savedAs<DrywallAccessoriesData>(savedMeasurements, "Drywall Accessories") ?? {} as DrywallAccessoriesData
@@ -220,10 +220,6 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   // Remount keys — incremented on sync so child components re-initialize from new initialData
   const [insulationKey,    setInsulationKey]    = useState(0);
   const [insulAccKey,      setInsulAccKey]      = useState(0);
-  const [drywallKey,       setDrywallKey]       = useState(0);
-  const [drywallAccKey,    setDrywallAccKey]    = useState(0);
-  const [paintingKey,      setPaintingKey]      = useState(0);
-  const [interiorTrimKey,  setInteriorTrimKey]  = useState(0);
   const [deckAccKey,        setDeckAccKey]        = useState(0);
   const [deckFramingKey,    setDeckFramingKey]    = useState(0);
   const [deckFramingAccKey, setDeckFramingAccKey] = useState(0);
@@ -231,7 +227,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   // Linked scopes always take their measurements from the Measurements tab
   function getDataForTrade(tradeType: string): Record<string, unknown> {
     const scopeData = getScopeData(tradeType);
-    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job) : null;
+    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job, scopeData) : null;
     return linked ? { ...scopeData, ...linked } : scopeData;
   }
 
@@ -347,8 +343,6 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   // Wall Assembly downstream tabs that should be re-synced and re-applied
   const WALL_DOWNSTREAM = [
     "Insulation", "Insulation Accessories",
-    "Drywall", "Drywall Accessories",
-    "Painting", "Interior Trim", "Interior Trim Accessories",
   ];
 
   const [pendingApply, setPendingApply] = useState<string[] | null>(null);
@@ -430,13 +424,6 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
     (c) => (c.length ?? 0) > 0 && (c.width ?? 0) > 0
   );
 
-  // Average wall height from Wall Assembly — walls with no height entered default to 9 ft
-  const avgWallHeight = (() => {
-    const heights = sourceWalls.map((w) => (w.height && w.height > 0) ? w.height : 9);
-    if (heights.length === 0) return 9;
-    return Math.round((heights.reduce((s, h) => s + h, 0) / heights.length) * 10) / 10;
-  })();
-
   // Which tabs show the sync banner and what they'll receive
   type SyncInfo = { label: string };
   function getSyncInfo(tab: string): SyncInfo | null {
@@ -479,48 +466,6 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
     if (tab === "Insulation Accessories") {
       if (sourceCeilings.length === 0) return null;
       return { label: `${sourceCeilings.length} ceiling section${sourceCeilings.length !== 1 ? "s" : ""} from Wall Assembly` };
-    }
-    if (tab === "Drywall") {
-      if (sourceWalls.length === 0 && sourceCeilings.length === 0) return null;
-      const parts: string[] = [];
-      if (sourceWalls.length > 0) parts.push(`${sourceWalls.length} wall${sourceWalls.length !== 1 ? "s" : ""}`);
-      if (sourceCeilings.length > 0) parts.push(`${sourceCeilings.length} ceiling${sourceCeilings.length !== 1 ? "s" : ""}`);
-      return { label: parts.join(" + ") + " from Wall Assembly" };
-    }
-    if (tab === "Painting") {
-      const hasDoors   = (wallData.doors   ?? []).length > 0;
-      const hasWindows = (wallData.windows ?? []).length > 0;
-      if (sourceWalls.length === 0 && sourceCeilings.length === 0 && !hasDoors && !hasWindows) return null;
-      const parts: string[] = [];
-      if (sourceWalls.length > 0) parts.push(`${sourceWalls.length} wall${sourceWalls.length !== 1 ? "s" : ""}`);
-      if (sourceCeilings.length > 0) parts.push(`${sourceCeilings.length} ceiling${sourceCeilings.length !== 1 ? "s" : ""}`);
-      if (hasDoors || hasWindows) parts.push("trim LF");
-      return { label: parts.join(" + ") + " from Wall Assembly" };
-    }
-    if (tab === "Drywall Accessories") {
-      const cornerCount = wallData.corners ?? 0;
-      const hasDoors    = (wallData.doors   ?? []).length > 0;
-      const hasWindows  = (wallData.windows ?? []).length > 0;
-      const hasArea     = sourceWalls.length > 0 || sourceCeilings.length > 0;
-      if (cornerCount === 0 && !hasDoors && !hasWindows && !hasArea) return null;
-      const parts: string[] = [];
-      if (cornerCount > 0)        parts.push(`${cornerCount} corner${cornerCount !== 1 ? "s" : ""}`);
-      if (hasDoors || hasWindows)  parts.push("openings");
-      if (hasArea)                 parts.push("area sqft");
-      return { label: parts.join(" + ") + " from Wall Assembly" };
-    }
-    if (tab === "Interior Trim") {
-      const hasDoors   = (wallData.doors   ?? []).length > 0;
-      const hasWindows = (wallData.windows ?? []).length > 0;
-      if (sourceWalls.length === 0 && !hasDoors && !hasWindows) return null;
-      const parts: string[] = [];
-      if (sourceWalls.length > 0)
-        parts.push(`${sourceWalls.length} wall${sourceWalls.length !== 1 ? "s" : ""}`);
-      if (hasDoors)
-        parts.push(`${wallData.doors!.length} door type${wallData.doors!.length !== 1 ? "s" : ""}`);
-      if (hasWindows)
-        parts.push(`${wallData.windows!.length} window type${wallData.windows!.length !== 1 ? "s" : ""}`);
-      return { label: parts.join(" + ") + " from Wall Assembly" };
     }
     return null;
   }
@@ -639,119 +584,6 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       setInsulAccData((prev) => ({ ...prev, ceilingSections: ceilSections }));
       setInsulAccKey((k) => k + 1);
 
-    } else if (tab === "Drywall") {
-      const drywallCeilings = sourceCeilings.map((c) => ({
-        id: uid(), label: c.label ?? "", length: c.length, width: c.width,
-      }));
-      setDrywallData((prev) => ({ ...prev, wallSections, ceilingSections: drywallCeilings }));
-      setDrywallKey((k) => k + 1);
-
-    } else if (tab === "Painting") {
-      // Wall sections → surfaces (length = LF, width = height)
-      const wallSurfaces = sourceWalls.map((w) => ({
-        id: uid(), label: w.label ?? "", length: w.length, width: w.height,
-      }));
-      // Ceiling sections → ceiling surfaces
-      const ceilSurfaces = sourceCeilings.map((c) => ({
-        id: uid(),
-        label: c.label ? `${c.label} (ceiling)` : "Ceiling",
-        length: c.length,
-        width: c.width,
-      }));
-
-      // Base molding LF: total wall perimeter minus door widths
-      const perimLf = sourceWalls.reduce((s, w) => s + (w.length ?? 0), 0);
-      const doorDedLf = (wallData.doors ?? []).reduce((s, d) => {
-        const w = (d.widthFt ?? 0) + (d.widthIn ?? 0) / 12;
-        return s + w * (d.count ?? 1);
-      }, 0);
-      const baseLf = Math.max(0, Math.round(perimLf - doorDedLf));
-
-      // Casing LF: door casing (2h+w per side × sides × count) + window casing (2h+2w × count)
-      const doorCasingLf = (wallData.doors ?? []).reduce((s, d) => {
-        const w = (d.widthFt ?? 0) + (d.widthIn ?? 0) / 12;
-        const h = (d.heightFt ?? 0) + (d.heightIn ?? 0) / 12;
-        const sides = (d.type ?? "interior") === "interior" ? 2 : 1;
-        return s + (2 * h + w) * sides * (d.count ?? 1);
-      }, 0);
-      const winCasingLf = (wallData.windows ?? []).reduce((s, w) => {
-        const wd = (w.widthFt ?? 0) + (w.widthIn ?? 0) / 12;
-        const ht = (w.heightFt ?? 0) + (w.heightIn ?? 0) / 12;
-        return s + (2 * ht + 2 * wd) * (w.count ?? 1);
-      }, 0);
-      const casingLf = Math.round(doorCasingLf + winCasingLf);
-
-      setPaintingData((prev) => ({
-        ...prev,
-        surfaces: [...wallSurfaces, ...ceilSurfaces],
-        baseLf,
-        casingLf,
-      }));
-      setPaintingKey((k) => k + 1);
-
-    } else if (tab === "Drywall Accessories") {
-      // Corner bead: corners × avg wall height
-      const cornerBeadLf = Math.round((wallData.corners ?? 0) * avgWallHeight);
-
-      // J-bead: door openings (2h+w) + window openings (2h+2w)
-      const doorJBead = (wallData.doors ?? []).reduce((s, d) => {
-        const w = (d.widthFt ?? 0) + (d.widthIn ?? 0) / 12;
-        const h = (d.heightFt ?? 0) + (d.heightIn ?? 0) / 12;
-        return s + (2 * h + w) * (d.count ?? 1);
-      }, 0);
-      const winJBead = (wallData.windows ?? []).reduce((s, w) => {
-        const wd = (w.widthFt ?? 0) + (w.widthIn ?? 0) / 12;
-        const ht = (w.heightFt ?? 0) + (w.heightIn ?? 0) / 12;
-        return s + (2 * ht + 2 * wd) * (w.count ?? 1);
-      }, 0);
-      const jBeadLf = Math.round(doorJBead + winJBead);
-
-      // Primer / texture sqft: wall runs (LF × height) + ceiling sections (L × W)
-      const wallSqft = sourceWalls.reduce(
-        (s, w) => s + (w.length ?? 0) * (w.height ?? 0), 0
-      );
-      const ceilSqft = sourceCeilings.reduce(
-        (s, c) => s + (c.length ?? 0) * (c.width ?? 0), 0
-      );
-      const totalSqft = Math.round(wallSqft + ceilSqft);
-
-      setDrywallAccData((prev) => ({
-        ...prev,
-        // Always overwrite corner bead when corners are defined; use 0 to clear if none
-        ...((wallData.corners ?? 0) >= 0 && { cornerBeadLf }),
-        ...(jBeadLf   > 0 && { jBeadLf }),
-        ...(totalSqft > 0 && { primerSqft: totalSqft, textureSqft: totalSqft }),
-      }));
-      setDrywallAccKey((k) => k + 1);
-
-    } else if (tab === "Interior Trim") {
-      // Sync baseLf from total wall LF, doors + windows from Wall Assembly
-      const totalBaseLf = sourceWalls.reduce((s, w) => s + (w.length ?? 0), 0);
-      const syncDoors = (wallData.doors ?? []).map((d) => ({
-        id: uid(),
-        label: d.label ?? "",
-        widthFt:  d.widthFt,  widthIn:  d.widthIn,
-        heightFt: d.heightFt, heightIn: d.heightIn,
-        count: d.count,
-        // Normalize: fall back to "interior" so older saved data with missing type still gets sticks
-        type: (d.type ?? "interior") as "interior" | "exterior",
-      }));
-      const syncWindows = (wallData.windows ?? []).map((w) => ({
-        id: uid(),
-        label: w.label ?? "",
-        widthFt:  w.widthFt,  widthIn:  w.widthIn,
-        heightFt: w.heightFt, heightIn: w.heightIn,
-        count: w.count,
-      }));
-      const totalDoorCount = syncDoors.reduce((s, d) => s + d.count, 0);
-      setInteriorTrimData((prev) => ({
-        ...prev,
-        baseLf:         Math.round(totalBaseLf),
-        doorDeductions: totalDoorCount,
-        doors:          syncDoors,
-        windows:        syncWindows,
-      }));
-      setInteriorTrimKey((k) => k + 1);
     }
   }
 
@@ -950,7 +782,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       {/* Form content */}
       <div>
         {activeTab === MEASURE_TAB && (
-          <JobMeasurementsForm value={job} onChange={updateJob} sections={jobSections} />
+          <JobMeasurementsForm value={job} onChange={updateJob} sections={jobSections} showFloor={normalizedTabs.includes("Flooring")} />
         )}
         {activeTab === "Roofing" && (
           <RoofingMeasurements initialData={roofingData} onChange={setRoofingData} linked />
@@ -959,13 +791,22 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <SidingMeasurements initialData={sidingData} onChange={setSidingData} part="options" />
         )}
         {activeTab === "Interior Trim" && (
-          <InteriorTrimMeasurements key={interiorTrimKey} initialData={interiorTrimData} onChange={setInteriorTrimData} />
+          <InteriorTrimMeasurements
+            initialData={interiorTrimData}
+            onChange={setInteriorTrimData}
+            linkedValues={deriveForTab("Interior Trim", job) as Partial<InteriorTrimData>}
+          />
         )}
         {activeTab === "Plumbing/Electrical" && (
           <PlumbingElectricalMeasurements initialData={peData} onChange={setPeData} />
         )}
         {activeTab === "Painting" && (
-          <PaintingMeasurements key={paintingKey} initialData={paintingData} onChange={setPaintingData} />
+          <PaintingMeasurements
+            initialData={paintingData}
+            onChange={setPaintingData}
+            roomSqft={job.rooms.filter((r) => r.length > 0 && r.width > 0).reduce((s, r) => s + roomPaintArea(r), 0)}
+            linkedValues={deriveForTab("Painting", job) as Partial<PaintingData>}
+          />
         )}
         {activeTab === "Demo" && (
           <DemoMeasurements initialData={demoData} onChange={setDemoData} />
@@ -999,10 +840,18 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <GutterMeasurements initialData={gutterData} onChange={setGutterData} linked />
         )}
         {activeTab === "Wall Assembly" && (
-          <WallAssemblyMeasurements initialData={wallData} onChange={setWallData} />
+          <WallAssemblyMeasurements
+            initialData={{ ...wallData, doors: job.doors, windows: job.windows, corners: job.interiorCorners }}
+            onChange={setWallData}
+            linked
+          />
         )}
         {activeTab === "Flooring" && (
-          <FlooringMeasurements initialData={flooringData} onChange={setFlooringData} />
+          <FlooringMeasurements
+            initialData={flooringData}
+            onChange={setFlooringData}
+            linkedRooms={deriveForTab("Flooring", job)?.rooms as FloorRoom[]}
+          />
         )}
         {activeTab === "Tile" && (
           <TileMeasurements initialData={tileData} onChange={setTileData} />
@@ -1020,25 +869,14 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <InsulationAccessoriesMeasurements key={insulAccKey} initialData={insulAccData} onChange={setInsulAccData} />
         )}
         {activeTab === "Drywall" && (
-          <DrywallMeasurements
-            key={drywallKey}
-            initialData={drywallData}
-            onChange={setDrywallData}
-            hasInsulationWalls={(insulationData.wallSections?.length ?? 0) > 0}
-            onSyncFromInsulation={() => {
-              const synced = (insulationData.wallSections ?? []).map((w) => ({
-                id: w.id,
-                label: w.label,
-                length: w.length,
-                height: w.height,
-              }));
-              setDrywallData((prev) => ({ ...prev, wallSections: synced }));
-              setDrywallKey((k) => k + 1);
-            }}
-          />
+          <DrywallMeasurements initialData={drywallData} onChange={setDrywallData} />
         )}
         {activeTab === "Drywall Accessories" && (
-          <DrywallAccessoriesMeasurements key={drywallAccKey} initialData={drywallAccData} onChange={setDrywallAccData} />
+          <DrywallAccessoriesMeasurements
+            initialData={drywallAccData}
+            onChange={setDrywallAccData}
+            linkedValues={deriveForTab("Drywall Accessories", job) as Partial<DrywallAccessoriesData>}
+          />
         )}
         {activeTab === "Exterior Trim" && (
           <ExteriorTrimMeasurements

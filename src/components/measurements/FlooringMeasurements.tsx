@@ -22,6 +22,7 @@ export interface FlooringData {
 interface Props {
   initialData?: Partial<FlooringData>;
   onChange: (data: FlooringData) => void;
+  linkedRooms?: FloorRoom[];
 }
 
 const inputCls =
@@ -61,7 +62,7 @@ function SmallField({
   );
 }
 
-export default function FlooringMeasurements({ initialData, onChange }: Props) {
+export default function FlooringMeasurements({ initialData, onChange, linkedRooms }: Props) {
   const [data, setData] = useState<FlooringData>({
     rooms: initialData?.rooms ?? [newRoom()],
     directSqft: initialData?.directSqft ?? 0,
@@ -112,7 +113,7 @@ export default function FlooringMeasurements({ initialData, onChange }: Props) {
     onChange(next);
   }
 
-  const roomSqf = data.rooms.reduce((sum, r) => sum + (r.length || 0) * (r.width || 0), 0);
+  const roomSqf = (linkedRooms ?? data.rooms).reduce((sum, r) => sum + (r.length || 0) * (r.width || 0), 0);
   const totalSqf = mode === "direct" ? data.directSqft : roomSqf;
   const adjustedSqf = Math.ceil(totalSqf * (1 + data.wasteFactor / 100));
   const underlaymentRolls100 = Math.ceil(adjustedSqf / 100);
@@ -158,6 +159,12 @@ export default function FlooringMeasurements({ initialData, onChange }: Props) {
               />
             </div>
           </div>
+        ) : linkedRooms ? (
+          <p className="text-sm text-slate-400">
+            {linkedRooms.length > 0
+              ? `Using ${linkedRooms.length} room${linkedRooms.length !== 1 ? "s" : ""} from the Measurements tab.`
+              : "No flooring rooms on the Measurements tab yet."}
+          </p>
         ) : (
         <>
         <div className="overflow-x-auto">

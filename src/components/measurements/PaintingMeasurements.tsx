@@ -16,6 +16,9 @@ export interface PaintingData {
 interface Props {
   initialData?: Partial<PaintingData>;
   onChange: (data: PaintingData) => void;
+  // From the Measurements tab: room paint area, and trim footage shown read-only
+  roomSqft?: number;
+  linkedValues?: Partial<Pick<PaintingData, "baseLf" | "casingLf">>;
 }
 
 const inputCls = "w-full rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition";
@@ -25,7 +28,7 @@ function newSurface(): SurfaceEntry {
   return { id: String(Date.now() + Math.random()), label: "", length: 0, width: 0 };
 }
 
-export default function PaintingMeasurements({ initialData, onChange }: Props) {
+export default function PaintingMeasurements({ initialData, onChange, roomSqft = 0, linkedValues = {} }: Props) {
   const [data, setData] = useState<PaintingData>({
     surfaces: initialData?.surfaces ?? [newSurface()],
     coats: initialData?.coats ?? 2,
@@ -60,14 +63,19 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
     onChange(next);
   }
 
-  const totalSqf = data.surfaces.reduce((sum, s) => sum + (s.length || 0) * (s.width || 0), 0);
+  const baseLf = linkedValues.baseLf ?? data.baseLf;
+  const casingLf = linkedValues.casingLf ?? data.casingLf;
+  const totalSqf = roomSqft + data.surfaces.reduce((sum, s) => sum + (s.length || 0) * (s.width || 0), 0);
   const adjustedSqf = Math.ceil(totalSqf * (1 + data.wasteFactor / 100));
 
   return (
     <div className="space-y-6">
       {/* Surfaces */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
-        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Surfaces to Paint</h3>
+        <div>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Individual Surfaces</h3>
+          <p className="text-xs text-slate-500 mt-1">For restoration or spot work. Added to the rooms from Measurements.</p>
+        </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -152,7 +160,7 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
         {totalSqf > 0 && (
           <div className="space-y-1.5">
             <div className="flex items-center gap-4 text-sm">
-              <span className="text-slate-400">Total surface area:</span>
+              <span className="text-slate-400">Total paint area:</span>
               <span className="font-semibold text-white">{totalSqf.toLocaleString()} sqf</span>
             </div>
             <div className="rounded-lg bg-blue-900/20 border border-blue-800/50 px-4 py-2.5 text-sm text-blue-300">
@@ -218,7 +226,8 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
                 <label className={labelCls}>Base molding (lf)</label>
                 <input
                   type="number"
-                  value={data.baseLf === 0 ? "" : data.baseLf}
+                  value={baseLf === 0 ? "" : baseLf}
+                  readOnly={linkedValues.baseLf !== undefined}
                   onChange={(e) => update("baseLf", Number(e.target.value) || 0)}
                   placeholder="0"
                   min="0"
@@ -230,7 +239,8 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
                 <label className={labelCls}>Door & window casing (lf)</label>
                 <input
                   type="number"
-                  value={data.casingLf === 0 ? "" : data.casingLf}
+                  value={casingLf === 0 ? "" : casingLf}
+                  readOnly={linkedValues.casingLf !== undefined}
                   onChange={(e) => update("casingLf", Number(e.target.value) || 0)}
                   placeholder="0"
                   min="0"
@@ -239,13 +249,13 @@ export default function PaintingMeasurements({ initialData, onChange }: Props) {
                 />
               </div>
             </div>
-            {(data.baseLf > 0 || data.casingLf > 0) && (
+            {(baseLf > 0 || casingLf > 0) && (
               <div className="rounded-lg bg-purple-900/20 border border-purple-800/40 px-4 py-2.5 text-xs text-purple-300">
                 Trim labor: <span className="font-bold">
-                  {(data.baseLf + data.casingLf).toLocaleString()} lf
+                  {(baseLf + casingLf).toLocaleString()} lf
                 </span> @ $1.50/lf →{" "}
                 <span className="font-bold">
-                  ${((data.baseLf + data.casingLf) * 1.50).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cost
+                  ${((baseLf + casingLf) * 1.50).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cost
                 </span>
               </div>
             )}

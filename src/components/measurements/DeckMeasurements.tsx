@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import CarpentryHours from "./CarpentryHours";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1518,66 +1519,13 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
           </div>
         </div>
 
-        {/* Labor — hourly */}
-        <div className="pt-2 border-t border-slate-700 space-y-3">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Carpentry Labor</p>
-          <div className="grid grid-cols-2 gap-4">
-            {/* Lead Carpenter */}
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">
-                Lead Carpenter <span className="text-slate-500">($57.50/hr)</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={data.leadCarpenterHours === 0 ? "" : data.leadCarpenterHours}
-                  onChange={(e) => update("leadCarpenterHours", e.target.value === "" ? 0 : Number(e.target.value))}
-                  placeholder="0"
-                  min="0"
-                  step="0.5"
-                  className={inputCls}
-                />
-                <span className="text-slate-500 text-xs flex-shrink-0">hrs</span>
-              </div>
-              {data.leadCarpenterHours > 0 && (
-                <p className="text-xs text-slate-500 mt-1">
-                  = <span className="text-white font-medium">${(data.leadCarpenterHours * 57.50).toFixed(2)}</span> pre-markup
-                </p>
-              )}
-            </div>
-            {/* Carpenter */}
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">
-                Carpenter <span className="text-slate-500">($25.00/hr)</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={data.carpenterHours === 0 ? "" : data.carpenterHours}
-                  onChange={(e) => update("carpenterHours", e.target.value === "" ? 0 : Number(e.target.value))}
-                  placeholder="0"
-                  min="0"
-                  step="0.5"
-                  className={inputCls}
-                />
-                <span className="text-slate-500 text-xs flex-shrink-0">hrs</span>
-              </div>
-              {data.carpenterHours > 0 && (
-                <p className="text-xs text-slate-500 mt-1">
-                  = <span className="text-white font-medium">${(data.carpenterHours * 25.00).toFixed(2)}</span> pre-markup
-                </p>
-              )}
-            </div>
-          </div>
-          {(data.leadCarpenterHours > 0 || data.carpenterHours > 0) && (
-            <div className="rounded-lg bg-slate-700/40 border border-slate-600 px-3 py-2 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Total labor (pre-markup)</span>
-              <span className="text-white font-semibold">
-                ${((data.leadCarpenterHours * 57.50) + (data.carpenterHours * 25.00)).toFixed(2)}
-              </span>
-            </div>
-          )}
-        </div>
+        <CarpentryHours
+          fields={[
+            { key: "leadCarpenterHours", label: "Lead Carpenter", value: data.leadCarpenterHours },
+            { key: "carpenterHours", label: "Carpenter", value: data.carpenterHours },
+          ]}
+          onChange={(k, v) => update(k as "leadCarpenterHours" | "carpenterHours", v)}
+        />
 
         {/* Board count summary */}
         {totalArea > 0 && (

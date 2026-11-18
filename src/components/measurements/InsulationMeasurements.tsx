@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import CarpentryHours from "./CarpentryHours";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ export interface InsulationData {
   blowInType: "cellulose" | "fiberglass"; // drives product selection
   atticSections: InsulAtticSection[];
   blowInBags: number;                // override — if rep manually knows bag count
+  finishCarpenterHours?: number; // 0 = use suggested
+  apprenticeHours?: number;
 }
 
 interface Props {
@@ -115,6 +118,8 @@ export default function InsulationMeasurements({ initialData, onChange }: Props)
     blowInType:      initialData?.blowInType      ?? "cellulose",
     atticSections:   initialData?.atticSections   ?? [],
     blowInBags:      initialData?.blowInBags      ?? 0,
+    finishCarpenterHours: initialData?.finishCarpenterHours ?? 0,
+    apprenticeHours: initialData?.apprenticeHours ?? 0,
   });
 
   function set<K extends keyof InsulationData>(key: K, value: InsulationData[K]) {
@@ -397,6 +402,15 @@ export default function InsulationMeasurements({ initialData, onChange }: Props)
           </div>
         )}
       </div>
+
+      <CarpentryHours
+        boxed
+        fields={[
+          { key: "finishCarpenterHours", label: "Finish Carpenter", value: data.finishCarpenterHours },
+          { key: "apprenticeHours", label: "Finish Apprentice", value: data.apprenticeHours },
+        ]}
+        onChange={(k, v) => set(k as "finishCarpenterHours" | "apprenticeHours", v)}
+      />
 
     </div>
   );

@@ -202,6 +202,70 @@ function findProduct(products: Product[], ...keywords: string[]): Product | unde
   )
 }
 
+// ── Carpentry labor ─────────────────────────────────────────────────────────
+// Suggested hours per crew member come from these production rates; typed-in hours replace them.
+// Interior rates are set so Basement Remodel (105 lf walls, 4 doors, ~220 lf trim, 840 sqft batts)
+// comes to 40 hrs each, 80 crew hours: walls 16 · doors 4 · trim 12 · insulation 8.
+export const CARPENTRY_PRODUCTION = {
+  deckSqftPerHr: 25,        // deck boards laid
+  deckRailLfPerHr: 8,       // railing installed
+  deckHrsPerStairFlight: 4,
+  framingSqftPerHr: 20,     // deck frame (ledger × joist span)
+  framingHrsPerPost: 0.5,
+  wallLfPerHr: 6.5,         // interior wall framing
+  trimLfPerHr: 18,          // base, casing, crown installed
+  trimHrsPerDoor: 1,        // set each door
+  insulationSqftPerHr: 105, // wall batts
+}
+const CARPENTER_FALLBACK_RATES: Record<string, number> = {
+  'Lead Carpenter': 57.5, 'Carpenter': 60, 'Finish Carpenter': 75, 'Finish Apprentice Carpenter': 30,
+}
+
+// Interior jobs (walls, insulation, doors, trim): Finish Carpenter + Finish Apprentice
+function interiorCrew(m: MeasurementData) {
+  return [
+    { name: 'Finish Carpenter', entered: m.finishCarpenterHours },
+    { name: 'Finish Apprentice Carpenter', entered: m.apprenticeHours },
+  ]
+}
+
+// Labor page names can be misspelled ("Finish Apprentice Capenter") — apprentice matches on the word
+function findCrewRate(products: Product[], name: string): Product | undefined {
+  const labor = products.filter((p) => p.category.toLowerCase().includes('labor'))
+  const exact = labor.find((p) => p.name.trim().toLowerCase() === name.toLowerCase())
+  if (exact || !name.toLowerCase().includes('apprentice')) return exact
+  return labor.find((p) => p.name.toLowerCase().includes('apprentice'))
+}
+
+// One line per crew member at the Labor page rate. Each member works the suggested hours
+// unless hours were entered for them.
+function pushCarpentry(
+  items: AssemblyItem[],
+  products: Product[],
+  category: string,
+  suggestedHours: number,
+  crew: { name: string; entered: unknown }[],
+) {
+  const suggested = Math.ceil(Math.max(0, suggestedHours) * 2) / 2
+  for (const member of crew) {
+    const entered = num(member.entered)
+    const hours = entered > 0 ? entered : suggested
+    if (hours <= 0) continue
+    const product = findCrewRate(products, member.name)
+    items.push({
+      description: entered > 0 ? member.name : `${member.name} (suggested hrs)`,
+      quantity: hours,
+      unit: 'hr',
+      cost: product?.cost ?? CARPENTER_FALLBACK_RATES[member.name] ?? 60,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category,
+      isLabor: true,
+      productId: product?.id,
+    })
+  }
+}
+
 /** Like findProduct but ALL keywords must be present (AND semantics). */
 // A gallon of paint — not caulk, tape, kits or spray cans that also say "paint"
 function findPaint(products: Product[]): Product | undefined {
@@ -2885,36 +2949,14 @@ export function calculateDeckAssembly(
     }
   }
 
-  // 3. Carpentry labor — hourly rates (Lead Carpenter $57.50/hr, Carpenter $25.00/hr)
-  const LEAD_CARPENTER_RATE = 57.50
-  const CARPENTER_RATE      = 25.00
-  const leadHours     = num(measurements.leadCarpenterHours)
-  const carpenterHours = num(measurements.carpenterHours)
-
-  if (leadHours > 0) {
-    items.push({
-      description: 'Lead Carpenter',
-      quantity: leadHours,
-      unit: 'hr',
-      cost: LEAD_CARPENTER_RATE,
-      markup: DEFAULT_MARKUP,
-      tier: 'GOOD',
-      category: 'Decking',
-      isLabor: true,
-    })
-  }
-  if (carpenterHours > 0) {
-    items.push({
-      description: 'Carpenter',
-      quantity: carpenterHours,
-      unit: 'hr',
-      cost: CARPENTER_RATE,
-      markup: DEFAULT_MARKUP,
-      tier: 'GOOD',
-      category: 'Decking',
-      isLabor: true,
-    })
-  }
+  // 3. Carpentry labor — Lead Carpenter + Carpenter, suggested from deck area, railing and stairs
+  const P = CARPENTRY_PRODUCTION
+  pushCarpentry(items, products, 'Decking',
+    totalArea / P.deckSqftPerHr + totalRailLf / P.deckRailLfPerHr + stairs * P.deckHrsPerStairFlight,
+    [
+      { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
+      { name: 'Carpenter', entered: measurements.carpenterHours },
+    ])
 
   // How many pricing tiers are active — one per selected material/product.
   // Railing and stair items repeat once per tier so every priced option is complete.
@@ -3736,36 +3778,16 @@ export function calculateDeckFramingAssembly(
     })
   }
 
-  // Carpentry labor — hourly (Lead Carpenter $57.50/hr, Carpenter $25.00/hr)
-  const LEAD_RATE   = 57.50
-  const CARP_RATE   = 25.00
-  const leadHrs     = num(measurements.leadCarpenterHours)
-  const carpHrs     = num(measurements.carpenterHours)
-
-  if (leadHrs > 0) {
-    items.push({
-      description: 'Lead Carpenter',
-      quantity: leadHrs,
-      unit: 'hr',
-      cost: LEAD_RATE,
-      markup: DEFAULT_MARKUP,
-      tier: 'GOOD',
-      category: 'Deck Framing',
-      isLabor: true,
-    })
-  }
-  if (carpHrs > 0) {
-    items.push({
-      description: 'Carpenter',
-      quantity: carpHrs,
-      unit: 'hr',
-      cost: CARP_RATE,
-      markup: DEFAULT_MARKUP,
-      tier: 'GOOD',
-      category: 'Deck Framing',
-      isLabor: true,
-    })
-  }
+  // Carpentry labor — Lead Carpenter + Carpenter, suggested from frame area (ledger × joist span) and posts
+  const frameSqft = (num(measurements.ledgerFt) + num(measurements.ledgerIn) / 12)
+    * (num(measurements.joistSpanFt) + num(measurements.joistSpanIn) / 12)
+  pushCarpentry(items, products, 'Deck Framing',
+    frameSqft / CARPENTRY_PRODUCTION.framingSqftPerHr
+      + num(measurements.postCount) * CARPENTRY_PRODUCTION.framingHrsPerPost,
+    [
+      { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
+      { name: 'Carpenter', entered: measurements.carpenterHours },
+    ])
 
   return items
 }
@@ -4185,19 +4207,9 @@ export function calculateWallAssembly(
     productId: nailProduct?.id,
   })
 
-  // 6. Labor — ~1 hr per 40 lf
-  const laborProduct = findProduct(products, 'framing labor', 'wall framing', 'carpentry labor')
-  items.push({
-    description: laborProduct?.name ?? 'Wall framing labor',
-    quantity: ceil(totalLf / 40),
-    unit: 'hr',
-    cost: laborProduct?.cost ?? 85,
-    markup: DEFAULT_MARKUP,
-    tier: laborProduct?.tier ?? 'GOOD',
-    category: 'Wall Assembly',
-    isLabor: true,
-    productId: laborProduct?.id,
-  })
+  // 6. Labor — the interior carpentry crew, suggested from total wall lf
+  pushCarpentry(items, products, 'Wall Assembly', totalLf / CARPENTRY_PRODUCTION.wallLfPerHr,
+    interiorCrew(measurements))
 
   // 7. Red Head Anchors — 1 every 24" of bottom plate LF
   if (measurements.redHeadAnchors) {
@@ -4838,19 +4850,9 @@ export function calculateInsulationAssembly(
       })
     }
 
-    // Installation labor — ~1 hr per 200 sqft of batt
-    const wallLaborProduct = findProduct(products, 'insulation labor', 'batt install', 'insulation install')
-    items.push({
-      description: wallLaborProduct?.name ?? 'Batt insulation installation labor',
-      quantity: Math.ceil(wallNetSqft / 200),
-      unit: 'hr',
-      cost: wallLaborProduct?.cost ?? 55,
-      markup: DEFAULT_MARKUP,
-      tier: wallLaborProduct?.tier ?? 'GOOD',
-      category: 'Insulation',
-      isLabor: true,
-      productId: wallLaborProduct?.id,
-    })
+    // Installation labor — the interior carpentry crew, suggested from wall sqft
+    pushCarpentry(items, products, 'Insulation', wallNetSqft / CARPENTRY_PRODUCTION.insulationSqftPerHr,
+      interiorCrew(measurements))
   }
 
   // ── Attic blow-in ──────────────────────────────────────────────────────────
@@ -5437,19 +5439,12 @@ export function calculateInteriorTrimAssembly(
     productId: caulkProduct?.id,
   })
 
-  // 8. Trim install labor — per lf  → Interior Trim Accessories
-  const laborProduct = findProduct(products, 'trim labor', 'trim install', 'finish carpentry', 'interior trim labor')
-  items.push({
-    description: laborProduct?.name ?? 'Trim installation labor',
-    quantity: Math.round(totalInstalledLf * 10) / 10,
-    unit: 'lf',
-    cost: laborProduct?.cost ?? DEFAULT_COSTS.trimLabor,
-    markup: DEFAULT_MARKUP,
-    tier: laborProduct?.tier ?? 'GOOD',
-    category: 'Interior Trim Accessories',
-    isLabor: true,
-    productId: laborProduct?.id,
-  })
+  // 8. Labor — the interior carpentry crew, suggested from installed trim lf and doors set
+  //    → Interior Trim Accessories
+  const doorCount = doors.reduce((s, d) => s + num(d.count, 1), 0)
+  pushCarpentry(items, products, 'Interior Trim Accessories',
+    totalInstalledLf / CARPENTRY_PRODUCTION.trimLfPerHr + doorCount * CARPENTRY_PRODUCTION.trimHrsPerDoor,
+    interiorCrew(measurements))
 
   return items
 }

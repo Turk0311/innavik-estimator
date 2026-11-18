@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import CarpentryHours from "./CarpentryHours";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,9 @@ export interface WallAssemblyData {
   studShoes: boolean;       // 1 stud shoe per stud
   pipeGuards: boolean;      // nail protection plates (qty entered by rep)
   pipeGuardsQty: number;
+  // Carpentry hours — 0 = use suggested
+  finishCarpenterHours?: number; // 0 = use suggested
+  apprenticeHours?: number;
 }
 
 interface Props {
@@ -250,6 +254,8 @@ export default function WallAssemblyMeasurements({ initialData, onChange, linked
     studShoes:       initialData?.studShoes       ?? false,
     pipeGuards:      initialData?.pipeGuards      ?? false,
     pipeGuardsQty:   initialData?.pipeGuardsQty   ?? 0,
+    finishCarpenterHours: initialData?.finishCarpenterHours ?? 0,
+    apprenticeHours: initialData?.apprenticeHours ?? 0,
   });
   const [roomL, setRoomL] = useState(0);
   const [roomW, setRoomW] = useState(0);
@@ -800,6 +806,15 @@ export default function WallAssemblyMeasurements({ initialData, onChange, linked
           )}
         </div>
       </div>
+
+      <CarpentryHours
+        boxed
+        fields={[
+          { key: "finishCarpenterHours", label: "Finish Carpenter", value: data.finishCarpenterHours },
+          { key: "apprenticeHours", label: "Finish Apprentice", value: data.apprenticeHours },
+        ]}
+        onChange={(k, v) => set(k as "finishCarpenterHours" | "apprenticeHours", v)}
+      />
 
       {/* ── Material Estimate ── */}
       {totalLf > 0 && (

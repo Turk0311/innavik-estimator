@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import CarpentryHours from "./CarpentryHours";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ export interface InteriorTrimData {
   baseProfile:    string;        // e.g. "colonial", "ranch", "craftsman" — drives product lookup
   casingProfile:  string;        // drives door + window casing product lookup
   crownProfile:   string;        // drives crown molding product lookup
+  finishCarpenterHours?: number; // 0 = use suggested
+  apprenticeHours?: number;
 }
 
 interface Props {
@@ -161,6 +164,8 @@ export default function InteriorTrimMeasurements({ initialData, onChange, linked
     baseProfile:    initialData?.baseProfile    ?? "",
     casingProfile:  initialData?.casingProfile  ?? "",
     crownProfile:   initialData?.crownProfile   ?? "",
+    finishCarpenterHours: initialData?.finishCarpenterHours ?? 0,
+    apprenticeHours: initialData?.apprenticeHours ?? 0,
   });
 
   function set<K extends keyof InteriorTrimData>(key: K, value: InteriorTrimData[K]) {
@@ -491,6 +496,15 @@ export default function InteriorTrimMeasurements({ initialData, onChange, linked
           </p>
         </div>
       )}
+
+      <CarpentryHours
+        boxed
+        fields={[
+          { key: "finishCarpenterHours", label: "Finish Carpenter", value: view.finishCarpenterHours },
+          { key: "apprenticeHours", label: "Finish Apprentice", value: view.apprenticeHours },
+        ]}
+        onChange={(k, v) => set(k as "finishCarpenterHours" | "apprenticeHours", v)}
+      />
 
     </div>
   );

@@ -247,6 +247,58 @@ function windowPerimeterLf(job: JobMeasurements): number {
   return job.windows.reduce((s, w) => s + (2 * feet(w.heightFt, w.heightIn) + 2 * feet(w.widthFt, w.widthIn)) * n(w.count), 0)
 }
 
+// Wall Assembly's wall and ceiling lists, when that scope is on the job
+export interface FramingSource {
+  walls?: { id?: string; label?: string; length?: number; height?: number }[]
+  ceilingSections?: { id?: string; label?: string; length?: number; width?: number }[]
+}
+
+interface InteriorSurfaces {
+  walls: { id: string; label: string; length: number; height: number }[]
+  ceilings: { id: string; label: string; length: number; width: number }[]
+  wallSource: "wall assembly" | "rooms"
+  ceilingSource: "wall assembly" | "rooms"
+}
+
+// Wall Assembly sections win when entered; rooms fill in whatever Wall Assembly doesn't have
+export function interiorSurfaces(job: JobMeasurements, framing?: FramingSource): InteriorSurfaces {
+  const rooms = validRooms(job)
+  const framedWalls = (framing?.walls ?? []).filter((w) => n(w.length) > 0)
+  const framedCeilings = (framing?.ceilingSections ?? []).filter((c) => n(c.length) > 0 && n(c.width) > 0)
+  const walls = framedWalls.length > 0
+    ? framedWalls.map((w, i) => ({
+        id: ROOM_ENTRY_PREFIX + "wa-" + (w.id ?? i), label: w.label ?? "",
+        length: n(w.length), height: n(w.height) || 8,
+      }))
+    : rooms.filter((r) => n(r.height) > 0).map((r) => ({
+        id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: roomWallLf(r), height: n(r.height),
+      }))
+  const ceilings = framedCeilings.length > 0
+    ? framedCeilings.map((c, i) => ({
+        id: ROOM_ENTRY_PREFIX + "wa-" + (c.id ?? i), label: c.label ?? "", length: n(c.length), width: n(c.width),
+      }))
+    : rooms.filter((r) => r.ceiling).map((r) => ({
+        id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: n(r.length), width: n(r.width),
+      }))
+  return {
+    walls, ceilings,
+    wallSource: framedWalls.length > 0 ? "wall assembly" : "rooms",
+    ceilingSource: framedCeilings.length > 0 ? "wall assembly" : "rooms",
+  }
+}
+
+function surfaceTotals(surf: InteriorSurfaces) {
+  const wallLf = surf.walls.reduce((s, w) => s + w.length, 0)
+  const wallSqft = surf.walls.reduce((s, w) => s + w.length * w.height, 0)
+  const ceilingSqft = surf.ceilings.reduce((s, c) => s + c.length * c.width, 0)
+  return { wallLf, wallSqft, ceilingSqft }
+}
+
+export function interiorPaintSqft(job: JobMeasurements, framing?: FramingSource): number {
+  const t = surfaceTotals(interiorSurfaces(job, framing))
+  return Math.round(t.wallSqft + t.ceilingSqft)
+}
+
 // Hand-entered sections only, with any room-built ones removed
 export function stripRoomEntries<T>(data: T): T {
   const d = data as Record<string, unknown>
@@ -280,6 +332,7 @@ export function deriveForTab(
   tab: string,
   job: JobMeasurements,
   scopeData: Record<string, unknown> = {},
+  framing?: FramingSource,
 ): Record<string, unknown> | null {
   if (tab === "Roofing") {
     return {
@@ -332,33 +385,31 @@ export function deriveForTab(
   }
 
   const rooms = validRooms(job)
-  // A room with no height is floor-only: no walls, base or casing
-  const perimeter = rooms.filter((r) => n(r.height) > 0).reduce((s, r) => s + roomWallLf(r), 0)
+  const surf = interiorSurfaces(job, framing)
+  const totals = surfaceTotals(surf)
+  const perimeter = totals.wallLf
   if (tab === "Painting") {
     const doorWidths = job.doors.reduce((s, d) => s + feet(d.widthFt, d.widthIn) * n(d.count), 0)
     const baseLf = Math.max(0, Math.round(perimeter - doorWidths))
     const casingLf = Math.round(doorCasingLf(job) + windowPerimeterLf(job))
-    return { rooms, ...(baseLf > 0 && { baseLf }), ...(casingLf > 0 && { casingLf }) }
+    return {
+      rooms: [], wallSections: surf.walls, ceilingSections: surf.ceilings,
+      ...(baseLf > 0 && { baseLf }), ...(casingLf > 0 && { casingLf }),
+    }
   }
   if (tab === "Drywall") {
     const own = stripRoomEntries(scopeData)
-    const walls = rooms.filter((r) => n(r.height) > 0).map((r) => ({
-      id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: roomWallLf(r), height: r.height,
-    }))
-    const ceilings = rooms.filter((r) => r.ceiling).map((r) => ({
-      id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: r.length, width: r.width,
-    }))
     return {
-      wallSections: [...walls, ...((own.wallSections as unknown[]) ?? [])],
-      ceilingSections: [...ceilings, ...((own.ceilingSections as unknown[]) ?? [])],
+      wallSections: [...surf.walls, ...((own.wallSections as unknown[]) ?? [])],
+      ceilingSections: [...surf.ceilings, ...((own.ceilingSections as unknown[]) ?? [])],
     }
   }
   if (tab === "Drywall Accessories") {
-    const heights = rooms.map((r) => n(r.height)).filter((h) => h > 0)
+    const heights = surf.walls.map((w) => w.height).filter((h) => h > 0)
     const avgHeight = heights.length > 0 ? heights.reduce((s, h) => s + h, 0) / heights.length : 8
     const cornerBeadLf = Math.round(job.interiorCorners * avgHeight)
     const jBeadLf = Math.round(doorEdgeLf(job) + windowPerimeterLf(job))
-    const sqft = Math.round(rooms.reduce((s, r) => s + roomPaintArea(r), 0))
+    const sqft = Math.round(totals.wallSqft + totals.ceilingSqft)
     return {
       ...(cornerBeadLf > 0 && { cornerBeadLf }),
       ...(jBeadLf > 0 && { jBeadLf }),
@@ -393,7 +444,7 @@ const PITCH_LABELS: Record<string, string> = {
 }
 
 // Short "what this scope will use" lines for the confirm banner
-export function summaryForTab(tab: string, job: JobMeasurements): string[] {
+export function summaryForTab(tab: string, job: JobMeasurements, framing?: FramingSource): string[] {
   const parts: string[] = []
   const add = (v: number, label: string) => { if (v > 0) parts.push(`${v.toLocaleString()} ${label}`) }
   if (tab === "Roofing") {
@@ -426,16 +477,19 @@ export function summaryForTab(tab: string, job: JobMeasurements): string[] {
     const rooms = validRooms(job)
     const doorCount = job.doors.reduce((s, d) => s + n(d.count), 0)
     const windowCount = job.windows.reduce((s, w) => s + n(w.count), 0)
-    const walls = Math.round(rooms.reduce((s, r) => s + roomWallLf(r) * n(r.height), 0))
-    const ceilings = Math.round(rooms.filter((r) => r.ceiling).reduce((s, r) => s + n(r.length) * n(r.width), 0))
+    const surf = interiorSurfaces(job, framing)
+    const t = surfaceTotals(surf)
+    const from = (src: string) => (src === "wall assembly" ? " (Wall Assembly)" : "")
     if (tab === "Painting" || tab === "Drywall") {
-      add(rooms.length, "room(s)"); add(walls, "sqft walls"); add(ceilings, "sqft ceilings")
+      if (surf.wallSource === "rooms" || surf.ceilingSource === "rooms") add(rooms.length, "room(s)")
+      add(Math.round(t.wallSqft), "sqft walls" + from(surf.wallSource))
+      add(Math.round(t.ceilingSqft), "sqft ceilings" + from(surf.ceilingSource))
       if (tab === "Painting") { add(doorCount, "door(s)"); add(windowCount, "window(s)") }
     } else if (tab === "Drywall Accessories") {
-      add(rooms.length, "room(s)"); add(walls + ceilings, "sqft"); add(job.interiorCorners, "corner(s)")
+      add(Math.round(t.wallSqft + t.ceilingSqft), "sqft"); add(job.interiorCorners, "corner(s)")
       add(doorCount, "door(s)"); add(windowCount, "window(s)")
     } else if (tab === "Interior Trim" || tab === "Interior Trim Accessories") {
-      add(rooms.length, "room(s)"); add(Math.round(rooms.filter((r) => n(r.height) > 0).reduce((s, r) => s + roomWallLf(r), 0)), "lf walls")
+      add(Math.round(t.wallLf), "lf walls" + from(surf.wallSource))
       add(doorCount, "door(s)"); add(windowCount, "window(s)")
     } else if (tab === "Flooring") {
       const floors = rooms.filter((r) => r.floor !== false)

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import JobMeasurementsForm from "@/components/measurements/JobMeasurementsForm";
 import {
   type JobMeasurements, JOB_TRADE_TYPE, LINKED_TABS,
-  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab, stripRoomEntries, roomPaintArea,
+  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab, stripRoomEntries, interiorPaintSqft,
 } from "@/lib/jobMeasurements";
 import { useRouter } from "next/navigation";
 import RoofingMeasurements, { type RoofingData } from "@/components/measurements/RoofingMeasurements";
@@ -224,10 +224,15 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   const [deckFramingKey,    setDeckFramingKey]    = useState(0);
   const [deckFramingAccKey, setDeckFramingAccKey] = useState(0);
 
+  // Wall Assembly's own walls and ceilings feed the finish scopes when it's on the job
+  const framing = normalizedTabs.includes("Wall Assembly")
+    ? { walls: wallData.walls, ceilingSections: wallData.ceilingSections }
+    : undefined;
+
   // Linked scopes always take their measurements from the Measurements tab
   function getDataForTrade(tradeType: string): Record<string, unknown> {
     const scopeData = getScopeData(tradeType);
-    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job, scopeData) : null;
+    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job, scopeData, framing) : null;
     return linked ? { ...scopeData, ...linked } : scopeData;
   }
 
@@ -737,7 +742,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <div className="min-w-0">
             <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-1">From Measurements</p>
             <p className="text-sm text-slate-300">
-              {summaryForTab(activeTab, job).join(" · ") || "Nothing entered yet"}
+              {summaryForTab(activeTab, job, framing).join(" · ") || "Nothing entered yet"}
             </p>
           </div>
           <button
@@ -794,7 +799,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <InteriorTrimMeasurements
             initialData={interiorTrimData}
             onChange={setInteriorTrimData}
-            linkedValues={deriveForTab("Interior Trim", job) as Partial<InteriorTrimData>}
+            linkedValues={deriveForTab("Interior Trim", job, {}, framing) as Partial<InteriorTrimData>}
           />
         )}
         {activeTab === "Plumbing/Electrical" && (
@@ -804,8 +809,8 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <PaintingMeasurements
             initialData={paintingData}
             onChange={setPaintingData}
-            roomSqft={job.rooms.filter((r) => r.length > 0 && r.width > 0).reduce((s, r) => s + roomPaintArea(r), 0)}
-            linkedValues={deriveForTab("Painting", job) as Partial<PaintingData>}
+            roomSqft={interiorPaintSqft(job, framing)}
+            linkedValues={deriveForTab("Painting", job, {}, framing) as Partial<PaintingData>}
           />
         )}
         {activeTab === "Demo" && (
@@ -875,7 +880,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <DrywallAccessoriesMeasurements
             initialData={drywallAccData}
             onChange={setDrywallAccData}
-            linkedValues={deriveForTab("Drywall Accessories", job) as Partial<DrywallAccessoriesData>}
+            linkedValues={deriveForTab("Drywall Accessories", job, {}, framing) as Partial<DrywallAccessoriesData>}
           />
         )}
         {activeTab === "Exterior Trim" && (

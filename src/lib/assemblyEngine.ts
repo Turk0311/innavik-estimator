@@ -203,6 +203,16 @@ function findProduct(products: Product[], ...keywords: string[]): Product | unde
 }
 
 /** Like findProduct but ALL keywords must be present (AND semantics). */
+// A gallon of paint — not caulk, tape, kits or spray cans that also say "paint"
+function findPaint(products: Product[]): Product | undefined {
+  const NOT_PAINT = ['caulk', 'tape', 'kit', 'spray', 'coverall', 'brush', 'roller', 'labor']
+  const isPaint = (p: Product) => {
+    const n = p.name.toLowerCase()
+    return n.includes('paint') && !NOT_PAINT.some((x) => n.includes(x))
+  }
+  return products.find((p) => isPaint(p) && p.unit.toLowerCase().startsWith('gal')) ?? products.find(isPaint)
+}
+
 function findProductAnd(products: Product[], ...keywords: string[]): Product | undefined {
   const lower = keywords.map((k) => k.toLowerCase())
   return products.find((p) => {
@@ -1817,7 +1827,7 @@ export function calculateInteriorAssembly(
   // 4. Paint — 2 coats, 1 gal per 350 sqf
   const paintArea = (netWallArea + ceilingArea) * 2
   const paintGallons = ceil(paintArea / 350)
-  const paintProduct = findProduct(products, 'paint', 'interior paint')
+  const paintProduct = findPaint(products)
   items.push({
     description: paintProduct?.name ?? 'Interior paint',
     quantity: paintGallons,
@@ -1989,6 +1999,21 @@ export function calculatePaintingAssembly(
     }, 0)
   }
 
+  const wallSections = measurements.wallSections
+  if (Array.isArray(wallSections)) {
+    totalSqf += wallSections.reduce((sum: number, w: unknown) => {
+      const wall = w as { length?: unknown; height?: unknown }
+      return sum + num(wall.length) * num(wall.height)
+    }, 0)
+  }
+  const ceilingSections = measurements.ceilingSections
+  if (Array.isArray(ceilingSections)) {
+    totalSqf += ceilingSections.reduce((sum: number, c: unknown) => {
+      const ceiling = c as { length?: unknown; width?: unknown }
+      return sum + num(ceiling.length) * num(ceiling.width)
+    }, 0)
+  }
+
   const rooms = measurements.rooms
   if (Array.isArray(rooms)) {
     totalSqf += rooms.reduce((sum: number, r: unknown) => {
@@ -2011,7 +2036,7 @@ export function calculatePaintingAssembly(
 
   const items: AssemblyItem[] = []
 
-  const paintProduct = findProduct(products, 'paint', 'interior paint', 'exterior paint')
+  const paintProduct = findPaint(products)
   items.push({
     description: paintProduct?.name ?? `Paint (${coats} coat${coats > 1 ? 's' : ''}${includesPrimer ? ' + primer' : ''})`,
     quantity: paintGallons,
@@ -4943,7 +4968,7 @@ export function calculateInsulationAccessoriesAssembly(
 // Sheets sized by selection (4×8 = 32 sqft, 4×12 = 48 sqft) + waste factor
 // Consumables: joint compound (1 bucket/200 sqft), screws (1 box/300 sqft),
 //              paper tape (1 roll/500 sqft)
-// Labor: hang ~1 hr/100 sqft + finish/mud ~1 hr/75 sqft
+// Labor: "Drywall Work" per sheet installed (Labor page, $100/sheet)
 // ---------------------------------------------------------------------------
 export function calculateDrywallAssembly(
   measurements: MeasurementData,
@@ -4973,10 +4998,18 @@ export function calculateDrywallAssembly(
   const netSqft = wallSqft + ceilSqft
   if (netSqft <= 0) return []
 
+  // Catalog sheets are named like 1/2"x4'x8' Drywall — match thickness + size, plainest name first
+  const sheetLen = sheetSize === '4x12' ? '12' : '8'
+  const norm = (s: string) => s.toLowerCase().replace(/["'`\s]/g, '')
+  const findSheet = (thk: string) => products
+    .filter((p) => !p.category.toLowerCase().includes('labor') && norm(p.name).includes('drywall')
+      && norm(p.name).startsWith(`${thk}x4x${sheetLen}`))
+    .sort((a, b) => a.name.length - b.name.length)[0]
+
   // 1a. Wall drywall sheets (½" default)
   if (wallSqft > 0) {
     const wallSheets   = Math.ceil(wallSqft * waste / sheetSqft)
-    const wallProduct  = findProduct(products, `${sheetSize} drywall`, `${wallThickness} drywall`, 'drywall sheet', 'gypsum board')
+    const wallProduct  = findSheet(wallThickness)
     items.push({
       description: wallProduct?.name ?? `${sheetSize} × ${wallThickness}" drywall — walls`,
       quantity: wallSheets,
@@ -4993,7 +5026,7 @@ export function calculateDrywallAssembly(
   // 1b. Ceiling drywall sheets (⅝" default)
   if (ceilSqft > 0) {
     const ceilSheets   = Math.ceil(ceilSqft * waste / sheetSqft)
-    const ceilProduct  = findProduct(products, `${sheetSize} drywall`, `${ceilThickness} drywall`, '5/8 drywall', 'ceiling drywall', 'gypsum board')
+    const ceilProduct  = findSheet(ceilThickness)
     items.push({
       description: ceilProduct?.name ?? `${sheetSize} × ${ceilThickness}" drywall — ceilings`,
       quantity: ceilSheets,
@@ -5052,32 +5085,21 @@ export function calculateDrywallAssembly(
     productId: tapeProduct?.id,
   })
 
-  // 5. Hang labor — ~1 hr per 100 sqft
-  const hangLabor = findProduct(products, 'drywall hang', 'hang labor', 'drywall labor')
+  // 5. Labor — "Drywall Work" from the Labor page, per sheet installed (hang + finish)
+  const totalSheets = (wallSqft > 0 ? Math.ceil(wallSqft * waste / sheetSqft) : 0)
+    + (ceilSqft > 0 ? Math.ceil(ceilSqft * waste / sheetSqft) : 0)
+  const drywallLabor = products.find((p) =>
+    p.category.toLowerCase().includes('labor') && p.name.trim().toLowerCase() === 'drywall work')
   items.push({
-    description: hangLabor?.name ?? 'Drywall hanging labor',
-    quantity: Math.ceil(netSqft / 100),
-    unit: 'hr',
-    cost: hangLabor?.cost ?? 65,
+    description: drywallLabor?.name ?? 'Drywall Work',
+    quantity: totalSheets,
+    unit: 'sheet',
+    cost: drywallLabor?.cost ?? 100,
     markup: DEFAULT_MARKUP,
-    tier: hangLabor?.tier ?? 'GOOD',
+    tier: drywallLabor?.tier ?? 'GOOD',
     category: 'Drywall',
     isLabor: true,
-    productId: hangLabor?.id,
-  })
-
-  // 6. Finish / mud labor — ~1 hr per 75 sqft (taping, 3 coats, sand)
-  const finishLabor = findProduct(products, 'drywall finish', 'mud labor', 'taping labor', 'finish labor')
-  items.push({
-    description: finishLabor?.name ?? 'Drywall finishing labor (tape, mud, sand)',
-    quantity: Math.ceil(netSqft / 75),
-    unit: 'hr',
-    cost: finishLabor?.cost ?? 70,
-    markup: DEFAULT_MARKUP,
-    tier: finishLabor?.tier ?? 'GOOD',
-    category: 'Drywall',
-    isLabor: true,
-    productId: finishLabor?.id,
+    productId: drywallLabor?.id,
   })
 
   return items

@@ -500,7 +500,7 @@ export default function InteriorTrimMeasurements({ initialData, onChange, linked
       <CarpentryHours
         boxed
         fields={[
-          { key: "finishCarpenterHours", label: "Finish Carpenter", value: view.finishCarpenterHours },
+          { key: "finishCarpenterHours", label: "Carpenter", value: view.finishCarpenterHours },
           { key: "apprenticeHours", label: "Finish Apprentice", value: view.apprenticeHours },
         ]}
         onChange={(k, v) => set(k as "finishCarpenterHours" | "apprenticeHours", v)}

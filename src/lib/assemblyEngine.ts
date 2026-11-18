@@ -205,26 +205,26 @@ function findProduct(products: Product[], ...keywords: string[]): Product | unde
 // ── Carpentry labor ─────────────────────────────────────────────────────────
 // Suggested hours per crew member come from these production rates; typed-in hours replace them.
 // Interior rates are set so Basement Remodel (105 lf walls, 4 doors, ~220 lf trim, 840 sqft batts)
-// comes to 40 hrs each, 80 crew hours: walls 16 · doors 4 · trim 12 · insulation 8.
+// comes to 80 hrs each (Carpenter + Apprentice): walls 32 · doors 8 · trim 24 · insulation 16.
 export const CARPENTRY_PRODUCTION = {
   deckSqftPerHr: 25,        // deck boards laid
   deckRailLfPerHr: 8,       // railing installed
   deckHrsPerStairFlight: 4,
   framingSqftPerHr: 20,     // deck frame (ledger × joist span)
   framingHrsPerPost: 0.5,
-  wallLfPerHr: 6.5,         // interior wall framing
-  trimLfPerHr: 18,          // base, casing, crown installed
-  trimHrsPerDoor: 1,        // set each door
-  insulationSqftPerHr: 105, // wall batts
+  wallLfPerHr: 3.25,        // interior wall framing
+  trimLfPerHr: 9,           // base, casing, crown installed
+  trimHrsPerDoor: 2,        // set each door
+  insulationSqftPerHr: 52.5, // wall batts
 }
 const CARPENTER_FALLBACK_RATES: Record<string, number> = {
   'Lead Carpenter': 57.5, 'Carpenter': 60, 'Finish Carpenter': 75, 'Finish Apprentice Carpenter': 30,
 }
 
-// Interior jobs (walls, insulation, doors, trim): Finish Carpenter + Finish Apprentice
+// Interior jobs (walls, insulation, doors, trim): Carpenter + Finish Apprentice
 function interiorCrew(m: MeasurementData) {
   return [
-    { name: 'Finish Carpenter', entered: m.finishCarpenterHours },
+    { name: 'Carpenter', entered: m.finishCarpenterHours },
     { name: 'Finish Apprentice Carpenter', entered: m.apprenticeHours },
   ]
 }
@@ -4775,6 +4775,67 @@ export function calculateBathroomAssembly(
 }
 
 // ---------------------------------------------------------------------------
+// Interior Doors + Interior Door Assembly
+// ---------------------------------------------------------------------------
+// One door per interior door on the Measurements tab (hollow core default, solid core option).
+// Hardware: a lock per door, shims 1 pack per 2 doors, trim-head screws 1 box per 8 doors.
+// Setting the doors is carpenter time on Interior Trim — no labor line here.
+// ---------------------------------------------------------------------------
+function interiorDoorCount(measurements: MeasurementData): number {
+  const doors = Array.isArray(measurements.doors) ? measurements.doors : []
+  return doors.reduce((s: number, d: unknown) => {
+    const door = d as { count?: unknown; type?: unknown }
+    return String(door.type ?? 'interior') === 'exterior' ? s : s + num(door.count, 1)
+  }, 0)
+}
+
+export function calculateInteriorDoorsAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const count = interiorDoorCount(measurements)
+  if (count <= 0) return []
+  const solid = String(measurements.doorCore ?? 'hc') === 'sc'
+  const core = solid ? 'sc' : 'hc'
+  const product = products.find((p) => new RegExp(`\\binterior ${core} door`, 'i').test(p.name))
+  return [{
+    description: product?.name ?? (solid ? 'Interior SC Doors' : 'Interior HC Doors'),
+    quantity: count,
+    unit: 'ea',
+    cost: product?.cost ?? (solid ? 400 : 250),
+    markup: DEFAULT_MARKUP,
+    tier: product?.tier ?? 'GOOD',
+    category: 'Interior Doors',
+    isLabor: false,
+    productId: product?.id,
+  }]
+}
+
+export function calculateInteriorDoorHardwareAssembly(
+  measurements: MeasurementData,
+  products: Product[]
+): AssemblyItem[] {
+  const count = interiorDoorCount(measurements)
+  if (count <= 0) return []
+  const lines: [Product | undefined, string, number, number][] = [
+    [products.find((p) => /interior door lock/i.test(p.name)), 'Interior Door Lock', count, 25],
+    [findProduct(products, 'wood shims', 'shims'), 'Wood shims (12 pk)', Math.ceil(count / 2), 6],
+    [findProduct(products, 'trim head wood screw', 'trim head'), 'Trim-head screws (100 ct)', Math.ceil(count / 8), 12],
+  ]
+  return lines.map(([product, fallback, quantity, cost]) => ({
+    description: product?.name ?? fallback,
+    quantity,
+    unit: 'ea',
+    cost: product?.cost ?? cost,
+    markup: DEFAULT_MARKUP,
+    tier: product?.tier ?? 'GOOD',
+    category: 'Interior Door Assembly',
+    isLabor: false,
+    productId: product?.id,
+  }))
+}
+
+// ---------------------------------------------------------------------------
 // Insulation Assembly
 // ---------------------------------------------------------------------------
 // Rules:
@@ -4791,7 +4852,27 @@ export function calculateInsulationAssembly(
   const wallProduct     = String(measurements.wallProduct ?? 'batt')
   const is2x6           = studSize === '2x6'
   const wastePct        = num(measurements.wasteFactor, 10)
-  const battSqftPerUnit = num(measurements.battSqftPerUnit, 40) || 40  // sqft per bunk/roll
+  const enteredSqftPerUnit = num(measurements.battSqftPerUnit)
+
+  // Batt/roll for an R-value: name must carry the R-value; 15" wide for 16" OC, 23" for 24" OC.
+  // Coverage comes from the name ("87.19sq ft", or a roll's 15"x32' → 40 sqft); rolls preferred.
+  const battWidth = num(measurements.studSpacing, 16) >= 24 ? '23"' : '15"'
+  function coverage(name: string): number {
+    const sq = name.match(/([\d.]+)\s*sq\s*ft/i)
+    if (sq) return Number(sq[1])
+    const roll = name.match(/(\d+)"\s*x\s*(\d+)'/)
+    return roll ? (Number(roll[1]) / 12) * Number(roll[2]) : 0
+  }
+  function findBatt(rValue: string) {
+    const rx = new RegExp(`\\bR-?${rValue}\\b`, 'i')
+    const all = products.filter((p) => rx.test(p.name) && !/blow|loose|labor/i.test(p.name)
+      && !p.category.toLowerCase().includes('labor'))
+    const sized = all.filter((p) => p.name.includes(battWidth))
+    const pool = sized.length > 0 ? sized : all
+    const product = pool.find((p) => coverage(p.name) > 0) ?? pool[0]
+    const sqft = enteredSqftPerUnit || (product ? coverage(product.name) : 0) || 40
+    return { product, sqft }
+  }
 
   // ── Wall batts ─────────────────────────────────────────────────────────────
   const wallSections = Array.isArray(measurements.wallSections) ? measurements.wallSections : []
@@ -4805,13 +4886,13 @@ export function calculateInsulationAssembly(
 
     if (is2x6) {
       // R-19 kraft-faced batt — priced per bunk/roll
-      const bunks = Math.ceil(wallSqftWithWaste / battSqftPerUnit)
-      const product = findProduct(products, 'R-19', 'r19', 'kraft', '2x6 insulation', 'r-19')
+      const { product, sqft } = findBatt('19')
+      const bunks = Math.ceil(wallSqftWithWaste / sqft)
       items.push({
         description: product?.name ?? 'R-19 Kraft-Faced Batt insulation',
         quantity: bunks,
         unit: 'bunk',
-        cost: product?.cost ?? 0.72 * battSqftPerUnit,
+        cost: product?.cost ?? 0.72 * sqft,
         markup: DEFAULT_MARKUP,
         tier: product?.tier ?? 'GOOD',
         category: 'Insulation',
@@ -4835,13 +4916,13 @@ export function calculateInsulationAssembly(
       })
     } else {
       // R-13 kraft-faced batt (standard 2×4) — priced per bunk/roll
-      const bunks = Math.ceil(wallSqftWithWaste / battSqftPerUnit)
-      const product = findProduct(products, 'R-13', 'r13', 'kraft', '2x4 insulation', 'r-13')
+      const { product, sqft } = findBatt('13')
+      const bunks = Math.ceil(wallSqftWithWaste / sqft)
       items.push({
         description: product?.name ?? 'R-13 Kraft-Faced Batt insulation',
         quantity: bunks,
         unit: 'bunk',
-        cost: product?.cost ?? 0.52 * battSqftPerUnit,
+        cost: product?.cost ?? 0.52 * sqft,
         markup: DEFAULT_MARKUP,
         tier: product?.tier ?? 'GOOD',
         category: 'Insulation',
@@ -4931,10 +5012,12 @@ export function calculateInsulationAccessoriesAssembly(
 
   if (totalWires > 0) {
     const wireProduct = findProduct(products, 'insulation support wire', 'support wire', 'ceiling wire', 'insul wire')
+    // Wire is sold in packs ("100ct") — order packs, not single wires
+    const perPack = Number(wireProduct?.name.match(/(\d+)\s*ct\b/i)?.[1] ?? 1) || 1
     items.push({
       description: wireProduct?.name ?? 'Ceiling insulation support wire (24" OC)',
-      quantity: totalWires,
-      unit: 'ea',
+      quantity: Math.ceil(totalWires / perPack),
+      unit: perPack > 1 ? 'pack' : 'ea',
       cost: wireProduct?.cost ?? 0.45,
       markup: DEFAULT_MARKUP,
       tier: wireProduct?.tier ?? 'GOOD',

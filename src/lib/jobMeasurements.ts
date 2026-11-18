@@ -82,7 +82,7 @@ export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim" | "roo
 export const LINKED_TABS = new Set([
   "Roofing", "Gutters", "Siding", "Exterior Trim", "Exterior Trim Accessories",
   "Painting", "Drywall", "Drywall Accessories", "Interior Trim", "Interior Trim Accessories",
-  "Flooring", "Wall Assembly",
+  "Flooring", "Wall Assembly", "Interior Doors", "Interior Door Assembly",
 ])
 
 // Wall and ceiling sections built from rooms carry this id prefix so they are never saved as hand-entered ones
@@ -213,7 +213,8 @@ export function sectionsForTabs(tabs: string[]): Set<JobSection> {
   if (has("Exterior Trim") || has("Exterior Trim Accessories")) s.add("trim").add("edges")
   const trim = has("Interior Trim") || has("Interior Trim Accessories")
   if (has("Painting") || has("Drywall") || has("Drywall Accessories") || has("Flooring") || trim) s.add("rooms")
-  if (has("Painting") || has("Drywall Accessories") || has("Wall Assembly") || trim) s.add("openings")
+  const doors = has("Interior Doors") || has("Interior Door Assembly")
+  if (has("Painting") || has("Drywall Accessories") || has("Wall Assembly") || trim || doors) s.add("openings")
   if (has("Drywall Accessories") || has("Wall Assembly")) s.add("corners")
   return s
 }
@@ -435,6 +436,9 @@ export function deriveForTab(
   if (tab === "Wall Assembly") {
     return { doors: job.doors, windows: job.windows, corners: job.interiorCorners }
   }
+  if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
+    return { doors: job.doors }
+  }
   return null
 }
 
@@ -497,6 +501,8 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
       add(Math.round(floors.reduce((s, r) => s + n(r.length) * n(r.width), 0)), "sqft floor")
     } else if (tab === "Wall Assembly") {
       add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
+    } else if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
+      add(job.doors.filter((d) => d.type !== "exterior").reduce((s, d) => s + n(d.count), 0), "interior door(s)")
     }
   }
   return parts

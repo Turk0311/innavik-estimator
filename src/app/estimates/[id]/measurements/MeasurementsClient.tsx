@@ -21,6 +21,7 @@ import DeckingAccessoriesMeasurements, { type DeckingAccessoriesData } from "@/c
 import DeckFramingMeasurements, { type DeckFramingData } from "@/components/measurements/DeckFramingMeasurements";
 import DeckFramingAccessoriesMeasurements, { type DeckFramingAccessoriesData } from "@/components/measurements/DeckFramingAccessoriesMeasurements";
 import GutterMeasurements, { type GutterData } from "@/components/measurements/GutterMeasurements";
+import InteriorDoorsMeasurements, { type InteriorDoorsData } from "@/components/measurements/InteriorDoorsMeasurements";
 import WallAssemblyMeasurements, { type WallAssemblyData } from "@/components/measurements/WallAssemblyMeasurements";
 import InsulationMeasurements, { type InsulationData } from "@/components/measurements/InsulationMeasurements";
 import InsulationAccessoriesMeasurements, { type InsulationAccessoriesData } from "@/components/measurements/InsulationAccessoriesMeasurements";
@@ -59,6 +60,7 @@ function normalizeTrade(scope: string): string {
   if (s.includes("kitchen")) return "Kitchen";
   if (s.includes("interior") && s.includes("trim") && s.includes("accessor")) return "Interior Trim Accessories";
   if (s.includes("interior") && s.includes("trim")) return "Interior Trim";
+  if (s.includes("interior") && s.includes("door")) return s.includes("assembl") || s.includes("accessor") ? "Interior Door Assembly" : "Interior Doors";
   if (s.includes("interior")) return "Interior Trim";
   if (s.includes("exterior") && s.includes("trim") && s.includes("accessor")) return "Exterior Trim Accessories";
   if (s.includes("exterior") && s.includes("trim")) return "Exterior Trim";
@@ -166,6 +168,9 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   );
   const [gutterData, setGutterData] = useState<GutterData>(
     () => savedAs<GutterData>(savedMeasurements, "Gutters") ?? {} as GutterData
+  );
+  const [interiorDoorsData, setInteriorDoorsData] = useState<InteriorDoorsData>(
+    () => savedAs<InteriorDoorsData>(savedMeasurements, "Interior Doors") ?? { doorCore: "hc" }
   );
   const [wallData, setWallData] = useState<WallAssemblyData>(() => {
     const saved = savedAs<WallAssemblyData>(savedMeasurements, "Wall Assembly");
@@ -278,6 +283,9 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       case "Deck Framing": return deckFramingData as unknown as Record<string, unknown>;
       case "Deck Framing Accessories": return deckFramingAccData as unknown as Record<string, unknown>;
       case "Gutters": return gutterData as unknown as Record<string, unknown>;
+      // Door Assembly shares the Interior Doors choices
+      case "Interior Doors":
+      case "Interior Door Assembly": return interiorDoorsData as unknown as Record<string, unknown>;
       case "Wall Assembly": return wallData as unknown as Record<string, unknown>;
       case "Windows/Doors": return windowsDoorData as unknown as Record<string, unknown>;
       case "Flooring": return flooringData as unknown as Record<string, unknown>;
@@ -840,6 +848,9 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
             autoPostAnchors={framingAutoPostAnchors}
             autoBeamBrackets={framingAutoBeamBrackets}
           />
+        )}
+        {activeTab === "Interior Doors" && (
+          <InteriorDoorsMeasurements initialData={interiorDoorsData} onChange={setInteriorDoorsData} />
         )}
         {activeTab === "Gutters" && (
           <GutterMeasurements initialData={gutterData} onChange={setGutterData} linked />

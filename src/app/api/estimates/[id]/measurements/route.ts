@@ -18,6 +18,8 @@ import {
   calculateGutterAssembly,
   calculateWallAssembly,
   calculateWindowsDoorAssembly,
+  calculateInteriorDoorsAssembly,
+  calculateInteriorDoorHardwareAssembly,
   calculateFlooringAssembly,
   calculateTileAssembly,
   calculateBathroomAssembly,
@@ -198,6 +200,10 @@ export async function POST(request: Request, context: RouteContext) {
       assemblyItems = calculateGutterAssembly(measurementData, products);
     } else if (trade === "wall assembly" || trade === "wall") {
       assemblyItems = calculateWallAssembly(measurementData, products);
+    } else if (trade === "interior doors") {
+      assemblyItems = calculateInteriorDoorsAssembly(measurementData, products);
+    } else if (trade === "interior door assembly") {
+      assemblyItems = calculateInteriorDoorHardwareAssembly(measurementData, products);
     } else if (trade === "windows/doors" || trade === "windows" || trade === "doors") {
       assemblyItems = calculateWindowsDoorAssembly(measurementData, products);
     } else if (trade === "flooring") {
@@ -354,6 +360,7 @@ export async function DELETE(request: Request, context: RouteContext) {
     if (s.includes("kitchen")) return "Kitchen";
     if (s.includes("interior") && s.includes("trim") && s.includes("accessor")) return "Interior Trim Accessories";
     if (s.includes("interior") && s.includes("trim")) return "Interior Trim";
+    if (s.includes("interior") && s.includes("door")) return s.includes("assembl") || s.includes("accessor") ? "Interior Door Assembly" : "Interior Doors";
     if (s.includes("interior")) return "Interior Trim";
     if (s.includes("exterior") && s.includes("trim") && s.includes("accessor")) return "Exterior Trim Accessories";
     if (s.includes("exterior") && s.includes("trim")) return "Exterior Trim";

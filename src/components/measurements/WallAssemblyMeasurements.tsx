@@ -810,7 +810,7 @@ export default function WallAssemblyMeasurements({ initialData, onChange, linked
       <CarpentryHours
         boxed
         fields={[
-          { key: "finishCarpenterHours", label: "Finish Carpenter", value: data.finishCarpenterHours },
+          { key: "finishCarpenterHours", label: "Carpenter", value: data.finishCarpenterHours },
           { key: "apprenticeHours", label: "Finish Apprentice", value: data.apprenticeHours },
         ]}
         onChange={(k, v) => set(k as "finishCarpenterHours" | "apprenticeHours", v)}

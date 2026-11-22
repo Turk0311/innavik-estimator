@@ -209,7 +209,8 @@ function findProduct(products: Product[], ...keywords: string[]): Product | unde
 // comes to 80 hrs each (Carpenter + Apprentice): walls 32 · doors 8 · trim 24 · insulation 16.
 export const CARPENTRY_PRODUCTION = {
   deckSqftPerHr: 25,        // deck boards laid
-  deckRailLfPerHr: 8,       // railing installed
+  deckRailLfPerHr: 4.5,     // railing installed — ~36 lf is a day
+  deckRoundToHrs: 4,        // deck labor is bid in half days
   deckHrsPerStairFlight: 4,
   framingSqftPerHr: 20,     // deck frame (ledger × joist span)
   framingHrsPerPost: 0.5,
@@ -246,8 +247,9 @@ function pushCarpentry(
   category: string,
   suggestedHours: number,
   crew: { name: string; entered: unknown }[],
+  roundToHrs = 0.5,   // deck scopes round up to the half day (4 hrs)
 ) {
-  const suggested = Math.ceil(Math.max(0, suggestedHours) * 2) / 2
+  const suggested = Math.ceil(Math.max(0, suggestedHours) / roundToHrs) * roundToHrs
   for (const member of crew) {
     const entered = num(member.entered)
     const hours = entered > 0 ? entered : suggested
@@ -2958,11 +2960,12 @@ export function calculateDeckAssembly(
   // 3. Carpentry labor — Lead Carpenter + Carpenter, suggested from deck area, railing and stairs
   const P = CARPENTRY_PRODUCTION
   pushCarpentry(items, products, 'Decking',
-    totalArea / P.deckSqftPerHr + totalRailLf / P.deckRailLfPerHr + stairs * P.deckHrsPerStairFlight,
+    // Stair rail is part of each flight's half day; the railing rate covers deck railing only
+    totalArea / P.deckSqftPerHr + deckRailLf / P.deckRailLfPerHr + stairs * P.deckHrsPerStairFlight,
     [
       { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
       { name: 'Carpenter', entered: measurements.carpenterHours },
-    ])
+    ], P.deckRoundToHrs)
 
   // How many pricing tiers are active — one per selected material/product.
   // Railing and stair items repeat once per tier so every priced option is complete.
@@ -3839,7 +3842,7 @@ export function calculateDeckFramingAssembly(
     [
       { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
       { name: 'Carpenter', entered: measurements.carpenterHours },
-    ])
+    ], CARPENTRY_PRODUCTION.deckRoundToHrs)
 
   return items
 }

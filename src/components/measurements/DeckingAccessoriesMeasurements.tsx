@@ -47,14 +47,15 @@ interface Props {
   initialData?: Partial<DeckingAccessoriesData>;
   onChange: (data: DeckingAccessoriesData) => void;
   deckSections?: DeckSectionDim[]; // from Decking tab — used to auto-calc fascia
+  autoDeckScrewsLbs?: number;       // suggested from deck sqft (wood decks)
 }
 
 const inputCls =
   "w-full rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition";
 const labelCls = "block text-xs font-medium text-slate-400 mb-1";
 
-function NumField({ label, unit, value, onChange }: {
-  label: string; unit?: string; value: number; onChange: (v: number) => void;
+function NumField({ label, unit, value, onChange, placeholder = "0" }: {
+  label: string; unit?: string; value: number; onChange: (v: number) => void; placeholder?: string;
 }) {
   return (
     <div>
@@ -75,7 +76,7 @@ function NumField({ label, unit, value, onChange }: {
 
 function toFt(ft: number, inches: number) { return (ft || 0) + (inches || 0) / 12; }
 
-export default function DeckingAccessoriesMeasurements({ initialData, onChange, deckSections }: Props) {
+export default function DeckingAccessoriesMeasurements({ initialData, onChange, deckSections, autoDeckScrewsLbs = 0 }: Props) {
   const [data, setData] = useState<DeckingAccessoriesData>({
     fasciaBoardsFt:      initialData?.fasciaBoardsFt ?? 0,
     fasciaBoardsIn:      initialData?.fasciaBoardsIn ?? 0,
@@ -410,13 +411,14 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
         <div className="grid grid-cols-2 gap-4">
           <NumField
             label="Deck Screws"
-            unit="lbs"
+            unit="lbs · 0 = auto"
             value={data.deckScrewsLbs}
             onChange={(v) => update("deckScrewsLbs", v)}
+            placeholder={autoDeckScrewsLbs > 0 ? `auto (${autoDeckScrewsLbs}) · 5 lb per 100 sqft` : "0"}
           />
           <NumField
             label="Cortex Screws & Plugs"
-            unit="carton · 100 lf"
+            unit="carton · 0 = auto: SQ boards → Cortex, GV → ConceaLoc"
             value={data.cortexKitCartons}
             onChange={(v) => update("cortexKitCartons", v)}
           />

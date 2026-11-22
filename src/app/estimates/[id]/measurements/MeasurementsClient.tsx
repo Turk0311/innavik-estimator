@@ -278,6 +278,9 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           ...deckAccData as unknown as Record<string, unknown>,
           isTimberTechDeck,
           deckProductIds: selProductIds,
+          autoDeckScrewsLbs: deckAutoScrewLbs,
+          // Board fasteners (Cortex for SQ, ConceaLoc for GV) are sized from the deck area
+          deckSqft: deckTotalSqft,
         };
       }
       case "Deck Framing": return deckFramingData as unknown as Record<string, unknown>;
@@ -411,6 +414,11 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       return sum + l * w;
     }, 0)
   );
+
+  // Deck screws: wood decks are face-screwed, ~5 lb per 100 sqft. TimberTech uses hidden fasteners.
+  const deckIsTimberTech = (deckData.deckProductIds ?? []).some((pid) =>
+    deckProducts.find((dp) => dp.id === pid)?.subCategory?.toLowerCase().includes("collection"));
+  const deckAutoScrewLbs = deckTotalSqft > 0 && !deckIsTimberTech ? Math.ceil((deckTotalSqft / 100) * 5) : 0;
 
   // First deck section dims — used to seed Deck Framing (ledger = width, joist span = length)
   const firstDeckSection = (deckData.sections ?? [])[0];
@@ -846,7 +854,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <DeckMeasurements initialData={deckData} onChange={setDeckData} products={deckProducts} />
         )}
         {activeTab === "Decking Accessories" && (
-          <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckData.sections} />
+          <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckData.sections} autoDeckScrewsLbs={deckAutoScrewLbs} />
         )}
         {activeTab === "Deck Framing" && (
           <DeckFramingMeasurements key={deckFramingKey} initialData={deckFramingData} onChange={setDeckFramingData} />

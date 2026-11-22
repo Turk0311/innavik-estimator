@@ -3376,7 +3376,7 @@ export function calculateDeckingAccessoriesAssembly(
   const topLocFasciaCartons  = topLocFasciaManual > 0
     ? topLocFasciaManual
     : (isTimberTechDeck && fasciaLf > 0 ? Math.ceil(fasciaLf / 100) : 0)
-  const screwsLbs            = num(measurements.deckScrewsLbs)
+  const screwsLbs            = num(measurements.deckScrewsLbs) || num(measurements.autoDeckScrewsLbs)
   const cortexKitCartons = num(measurements.cortexKitCartons)
   // ConceLoc hidden fasteners
   const conceLocSizeId = String(measurements.conceLocSizeId ?? '')
@@ -3496,9 +3496,55 @@ export function calculateDeckingAccessoriesAssembly(
     }
   }
 
+  // ── Board fasteners from the deck boards picked on the Decking tab ─────────
+  // Square-edge (SQ) boards are face-screwed with Cortex; grooved (GV) boards take ConceaLoc clips.
+  // Only when no board fasteners were typed in — typed amounts win.
+  const deckSqft = num(measurements.deckSqft)
+  const typedBoardFasteners = conceLocBoxes > 0 || topLocBoxes > 0 || cortexKitCartons > 0
+  if (!typedBoardFasteners && deckSqft > 0) {
+    const deckIds: string[] = Array.isArray(measurements.deckProductIds) ? (measurements.deckProductIds as string[]) : []
+    const boards = deckIds
+      .map((id) => products.find((p) => p.id === id))
+      .filter((p): p is Product => !!p)
+      .sort((a, b) => a.cost - b.cost)
+    const TIERS: AssemblyItem['tier'][] = ['GOOD', 'BETTER', 'BEST', 'GOOD_PLUS', 'BETTER_PLUS', 'BEST_PLUS']
+    const conceaLoc = (size: number) => products.find((p) => /concea?loc/i.test(p.name) && p.name.includes(`${size} sqft`))
+    boards.forEach((board, idx) => {
+      const tier = TIERS[idx] ?? 'BEST_PLUS'
+      const push = (product: Product | undefined, fallback: string, quantity: number, cost: number) => items.push({
+        description: product?.name ?? fallback, quantity, unit: 'box', cost: product?.cost ?? cost,
+        markup: DEFAULT_MARKUP, tier, category: 'Decking Accessories', isLabor: false, productId: product?.id,
+      })
+      if (/\bSQ\b/i.test(board.name)) {
+        // AZEK lines (Harvest, Landmark, Vintage) are PVC; the rest are composite
+        const isPvc = /\b(HARVEST|LANDMARK|VINTAGE)\b(?!\s*\+)/i.test(board.name)
+        const kit = products.find((p) => /cortex/i.test(p.name) && /300\s*sq/i.test(p.name) && (isPvc ? /pvc/i : /composite/i).test(p.name))
+        push(kit, `Cortex ${isPvc ? 'PVC' : 'Composite'} 300 sqft`, Math.ceil(deckSqft / 300), 323)
+      } else if (/\bGV\b/i.test(board.name)) {
+        // Cheapest mix of 1000 / 500 / 100 sqft boxes
+        const [b1000, b500, b100] = [conceaLoc(1000), conceaLoc(500), conceaLoc(100)]
+        const c100 = b100?.cost ?? 149, c500 = b500?.cost ?? 703, c1000 = b1000?.cost ?? 1367
+        const big = Math.floor(deckSqft / 1000)
+        const rest = deckSqft - big * 1000
+        const options = [
+          { n1000: 0, n500: 0, n100: Math.ceil(rest / 100) },
+          { n1000: 0, n500: 1, n100: Math.ceil(Math.max(0, rest - 500) / 100) },
+          { n1000: rest > 0 ? 1 : 0, n500: 0, n100: 0 },
+        ]
+        const best = options.sort((a, b) =>
+          (a.n1000 * c1000 + a.n500 * c500 + a.n100 * c100) - (b.n1000 * c1000 + b.n500 * c500 + b.n100 * c100))[0]
+        if (big + best.n1000 > 0) push(b1000, 'ConceaLoc hidden fasteners 1000 sqft', big + best.n1000, c1000)
+        if (best.n500 > 0) push(b500, 'ConceaLoc hidden fasteners 500 sqft (gun)', best.n500, c500)
+        if (best.n100 > 0) push(b100, 'ConceaLoc hidden fasteners 100 sqft', best.n100, c100)
+      }
+    })
+  }
+
   if (conceLocBoxes > 0 && conceLocSizeId) {
     const sizeLabel = conceLocSizeId === '500' ? '500 sqft (gun)' : `${conceLocSizeId} sqft`
-    const fastProduct = findProduct(products, 'conceloc', 'hidden fastener', 'deck fastener')
+    // Catalog spells it "ConceaLoc" — match the box size too, not just any hidden fastener
+    const fastProduct = products.find((p) => /concea?loc/i.test(p.name) && p.name.includes(`${conceLocSizeId} sqft`))
+      ?? findProduct(products, 'conceloc', 'concealoc', 'hidden fastener')
     items.push({
       description: fastProduct?.name ?? `ConceLoc hidden fasteners — ${sizeLabel} box`,
       quantity: conceLocBoxes,
@@ -3531,11 +3577,16 @@ export function calculateDeckingAccessoriesAssembly(
   }
 
   if (screwsLbs > 0) {
-    const screwProduct = findProduct(products, 'deck screw', 'decking screw')
+    // Buy the biggest box the catalog has ("... Deck Screw 5#") — boxes, not loose pounds
+    const boxLbs = (p: Product) => Number(p.name.match(/(\d+)\s*#/)?.[1] ?? 1) || 1
+    const screwProduct = products
+      .filter((p) => /deck(ing)? screw/i.test(p.name))
+      .sort((a, b) => boxLbs(b) - boxLbs(a))[0]
+    const perBox = screwProduct ? boxLbs(screwProduct) : 1
     items.push({
       description: screwProduct?.name ?? 'Deck screws',
-      quantity: screwsLbs,
-      unit: 'lb',
+      quantity: Math.ceil(screwsLbs / perBox),
+      unit: perBox > 1 ? 'box' : 'lb',
       cost: screwProduct?.cost ?? 12,
       markup: DEFAULT_MARKUP,
       tier: screwProduct?.tier ?? 'GOOD',

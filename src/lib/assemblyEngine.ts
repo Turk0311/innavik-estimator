@@ -3685,11 +3685,13 @@ export function calculateDeckFramingAssembly(
   // ── BEAMS ───────────────────────────────────────────────────────────────────
   // Same as ledger — pick the board length that covers the span.
   if (beamLf > 0) {
+    // Beams are always doubled — two boards per run
+    const BEAM_PLIES = 2
     const boardLen  = stockLen(products, beamSize, beamLf)
-    const qty       = Math.ceil(beamLf / boardLen)
+    const qty       = Math.ceil(beamLf / boardLen) * BEAM_PLIES
     const product   = findLumber(products, beamSize, boardLen)
     items.push({
-      description: product?.name ?? `Beams (${beamSize}×${boardLen}')`,
+      description: product?.name ? `${product.name} (doubled beam)` : `Beams (${beamSize}×${boardLen}', doubled)`,
       quantity: qty,
       unit: 'ea',
       cost: product?.cost ?? (boardLen * 2.50),

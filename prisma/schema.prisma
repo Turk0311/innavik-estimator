@@ -109,4 +109,6 @@ model EstimateItem {
   isLabor     Boolean  @default(false)
   sku         String?
   supplier    String?
+  // Built by a scope's Apply; re-applying replaces only these, hand-added lines stay
+  fromAssembly Boolean @default(false)
 }

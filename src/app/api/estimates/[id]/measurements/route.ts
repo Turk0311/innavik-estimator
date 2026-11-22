@@ -135,8 +135,9 @@ export async function POST(request: Request, context: RouteContext) {
     const estimateMarkup = await getEstimateMarkup(estimateId);
     const categoriesToPreClear = TRADE_CLEAR_MAP[trade] ?? [];
     for (const cat of categoriesToPreClear) {
+      // Only lines a scope built — hand-added lines in the same category stay
       await prisma.estimateItem.deleteMany({
-        where: { estimateId, category: { equals: cat, mode: 'insensitive' } },
+        where: { estimateId, category: { equals: cat, mode: 'insensitive' }, fromAssembly: true },
       });
     }
     if (categoriesToPreClear.length > 0) {
@@ -242,7 +243,7 @@ export async function POST(request: Request, context: RouteContext) {
       const alreadyCleared = new Set(categoriesToPreClear);
       for (const cat of newCategories) {
         if (!alreadyCleared.has(cat)) {
-          await prisma.estimateItem.deleteMany({ where: { estimateId, category: { equals: cat, mode: 'insensitive' } } });
+          await prisma.estimateItem.deleteMany({ where: { estimateId, category: { equals: cat, mode: 'insensitive' }, fromAssembly: true } });
         }
       }
 
@@ -268,6 +269,7 @@ export async function POST(request: Request, context: RouteContext) {
             productId: pid,
             sku: meta?.sku ?? null,
             supplier: meta?.supplier ?? null,
+            fromAssembly: true,
           };
         }),
       });

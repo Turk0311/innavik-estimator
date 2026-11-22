@@ -3,6 +3,7 @@
 
 import type { WallEntry, GableEntry, MeasurementSource } from "@/components/measurements/SidingMeasurements"
 import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements"
+import type { DeckSection, DeckRailRun } from "@/components/measurements/DeckMeasurements"
 
 export interface PlaneEntry { id: string; label: string; area: number }
 
@@ -75,15 +76,36 @@ export interface JobMeasurements {
   doors: WallDoorEntry[]
   windows: WallWindowEntry[]
   interiorCorners: number
+  // Deck — length runs along the house, width goes out from it
+  deckSections: DeckSection[]
+  deckHeightFt: number
+  deckHeightIn: number
+  deckRailLeft: boolean
+  deckRailFront: boolean
+  deckRailRight: boolean
+  deckGates: number
+  deckStairs: number        // flights
+  deckStairRisers: number
+  deckStairWidthFt: number
+  deckStairWidthIn: number
 }
 
-export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim" | "rooms" | "openings" | "corners"
+export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim" | "rooms" | "openings" | "corners" | "deck"
 
 export const LINKED_TABS = new Set([
   "Roofing", "Gutters", "Siding", "Exterior Trim", "Exterior Trim Accessories",
   "Painting", "Drywall", "Drywall Accessories", "Interior Trim", "Interior Trim Accessories",
   "Flooring", "Wall Assembly", "Interior Doors", "Interior Door Assembly",
+  "Decking", "Decking Accessories", "Deck Framing", "Deck Framing Accessories",
 ])
+
+export const DECK_TABS = ["Decking", "Decking Accessories", "Deck Framing", "Deck Framing Accessories"]
+export const DECK_POST_SPACING_FT = 8   // posts along the beam
+export const DECK_GATE_WIDTH_FT = 4
+
+export function newDeckSection(): DeckSection {
+  return { id: String(Date.now() + Math.random()), label: "", lengthFt: 0, lengthIn: 0, widthFt: 0, widthIn: 0 }
+}
 
 // Wall and ceiling sections built from rooms carry this id prefix so they are never saved as hand-entered ones
 const ROOM_ENTRY_PREFIX = "room:"
@@ -118,6 +140,9 @@ export function emptyJob(): JobMeasurements {
     soffitLf: 0, soffitArea: 0, jChannelLf: 0, finishTrimLf: 0,
     bandBoardLf: 0, windowTrimLf: 0, doorTrimLf: 0,
     rooms: [newRoom()], doors: [], windows: [], interiorCorners: 0,
+    deckSections: [newDeckSection()], deckHeightFt: 0, deckHeightIn: 0,
+    deckRailLeft: true, deckRailFront: true, deckRailRight: true, deckGates: 0,
+    deckStairs: 0, deckStairRisers: 7, deckStairWidthFt: 3, deckStairWidthIn: 0,
   }
 }
 
@@ -135,6 +160,9 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
   const walls = Array.isArray(sid.walls) && sid.walls.length > 0 ? (sid.walls as WallEntry[]) : base.walls
   const pick = (manual: unknown, hover: unknown) => n(isHover ? hover : manual)
   const wa = find("Wall Assembly") ?? {}
+  const deck = find("Decking") ?? find("Deck") ?? {}
+  const frame = find("Deck Framing") ?? {}
+  const deckRuns = Array.isArray(deck.deckRailRuns) ? (deck.deckRailRuns as DeckRailRun[]) : []
   const it = find("Interior Trim") ?? find("Interior") ?? {}
   const list = <T,>(...sources: unknown[]): T[] => {
     for (const src of sources) if (Array.isArray(src) && src.length > 0) return src as T[]
@@ -186,6 +214,11 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
     doors: list<WallDoorEntry>(wa.doors, it.doors),
     windows: list<WallWindowEntry>(wa.windows, it.windows),
     interiorCorners: n(wa.corners),
+    deckSections: list<DeckSection>(deck.sections).length > 0 ? list<DeckSection>(deck.sections) : base.deckSections,
+    deckHeightFt: n(frame.postHeightFt), deckHeightIn: n(frame.postHeightIn),
+    deckGates: deckRuns.filter((r) => r.type === "gate").length,
+    deckStairs: n(deck.stairs), deckStairRisers: n(deck.stairRisers) || 7,
+    deckStairWidthFt: deck.stairWidthFt === undefined ? 3 : n(deck.stairWidthFt), deckStairWidthIn: n(deck.stairWidthIn),
   }
 }
 
@@ -216,7 +249,44 @@ export function sectionsForTabs(tabs: string[]): Set<JobSection> {
   const doors = has("Interior Doors") || has("Interior Door Assembly")
   if (has("Painting") || has("Drywall Accessories") || has("Wall Assembly") || trim || doors) s.add("openings")
   if (has("Drywall Accessories") || has("Wall Assembly")) s.add("corners")
+  if (DECK_TABS.some(has)) s.add("deck")
   return s
+}
+
+// ── Deck geometry ───────────────────────────────────────────────────────────
+const ftIn = (ft: unknown, inches: unknown) => n(ft) + n(inches) / 12
+const splitFt = (ft: number) => {
+  const whole = Math.floor(ft)
+  const inches = Math.round((ft - whole) * 12)
+  return inches === 12 ? { ft: whole + 1, inches: 0 } : { ft: whole, inches }
+}
+
+export function deckGeometry(job: JobMeasurements) {
+  const sections = job.deckSections.filter((s) => ftIn(s.lengthFt, s.lengthIn) > 0 && ftIn(s.widthFt, s.widthIn) > 0)
+  const alongHouse = sections.reduce((t, s) => t + ftIn(s.lengthFt, s.lengthIn), 0)
+  const depth = sections.reduce((m, s) => Math.max(m, ftIn(s.widthFt, s.widthIn)), 0)
+  const sqft = sections.reduce((t, s) => t + ftIn(s.lengthFt, s.lengthIn) * ftIn(s.widthFt, s.widthIn), 0)
+  const stairGap = job.deckStairs > 0 ? ftIn(job.deckStairWidthFt, job.deckStairWidthIn) : 0
+  const gateLf = job.deckGates * DECK_GATE_WIDTH_FT
+  const frontRail = Math.max(0, alongHouse - stairGap - gateLf)
+  const railLf = (job.deckRailLeft ? depth : 0) + (job.deckRailFront ? frontRail : 0) + (job.deckRailRight ? depth : 0) + gateLf
+  const posts = alongHouse > 0 ? Math.ceil(alongHouse / DECK_POST_SPACING_FT) + 1 : 0
+  return { sections, alongHouse, depth, sqft, stairGap, frontRail, gateLf, railLf, posts, height: ftIn(job.deckHeightFt, job.deckHeightIn) }
+}
+
+// Railing runs: no rail on the house side; left, front (less the stair opening and gates) and right as picked
+function deckRailRuns(job: JobMeasurements, g: ReturnType<typeof deckGeometry>): DeckRailRun[] {
+  if (g.alongHouse <= 0) return []
+  const run = (label: string, ft: number, type: DeckRailRun["type"] = "section"): DeckRailRun => {
+    const { ft: lengthFt, inches: lengthIn } = splitFt(ft)
+    return { id: "deck:" + label, label, lengthFt, lengthIn, type }
+  }
+  const runs: DeckRailRun[] = [run("House side (ledger)", g.alongHouse, "ledger")]
+  if (job.deckRailLeft && g.depth > 0) runs.push(run("Left side", g.depth))
+  if (job.deckRailFront && g.frontRail > 0) runs.push(run("Front", g.frontRail))
+  for (let i = 0; i < job.deckGates; i++) runs.push(run(`Gate ${i + 1}`, DECK_GATE_WIDTH_FT, "gate"))
+  if (job.deckRailRight && g.depth > 0) runs.push(run("Right side", g.depth))
+  return runs
 }
 
 function validRooms(job: JobMeasurements): RoomEntry[] {
@@ -439,6 +509,35 @@ export function deriveForTab(
   if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
     return { doors: job.doors }
   }
+  if (DECK_TABS.includes(tab)) {
+    const g = deckGeometry(job)
+    if (tab === "Decking") {
+      const gap = splitFt(g.stairGap)
+      return {
+        sections: g.sections,
+        deckRailRuns: deckRailRuns(job, g),
+        stairRailRuns: [],   // the build works stair rail out from the stairs
+        stairs: job.deckStairs, stairRisers: job.deckStairRisers,
+        stairWidthFt: job.deckStairWidthFt, stairWidthIn: job.deckStairWidthIn,
+        stairGapFt: gap.ft, stairGapIn: gap.inches,
+      }
+    }
+    if (tab === "Decking Accessories") {
+      // Fascia on the exposed sides: front + both ends
+      const fascia = splitFt(g.alongHouse + g.depth * 2)
+      return g.alongHouse > 0 ? { fasciaBoardsFt: fascia.ft, fasciaBoardsIn: fascia.inches } : {}
+    }
+    // Deck Framing (and its accessories, which read the same frame)
+    const ledger = splitFt(g.alongHouse)
+    const span = splitFt(g.depth)
+    const height = splitFt(g.height)
+    return {
+      ...(g.alongHouse > 0 && { ledgerFt: ledger.ft, ledgerIn: ledger.inches, beamFt: ledger.ft, beamIn: ledger.inches }),
+      ...(g.depth > 0 && { joistSpanFt: span.ft, joistSpanIn: span.inches }),
+      ...(g.posts > 0 && { postCount: g.posts, pierCount: g.posts }),
+      ...(g.height > 0 && { postHeightFt: height.ft, postHeightIn: height.inches }),
+    }
+  }
   return null
 }
 
@@ -501,6 +600,18 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
       add(Math.round(floors.reduce((s, r) => s + n(r.length) * n(r.width), 0)), "sqft floor")
     } else if (tab === "Wall Assembly") {
       add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
+    } else if (DECK_TABS.includes(tab)) {
+      const g = deckGeometry(job)
+      const lf = (v: number) => Math.round(v * 10) / 10
+      if (tab === "Decking") {
+        add(Math.round(g.sqft), "sqft deck"); add(lf(g.railLf), "lf railing")
+        add(job.deckStairs, `stair flight(s) × ${job.deckStairRisers} risers`); add(job.deckGates, "gate(s)")
+      } else if (tab === "Decking Accessories") {
+        add(lf(g.alongHouse + g.depth * 2), "lf fascia"); add(Math.round(g.sqft), "sqft deck")
+      } else {
+        add(lf(g.alongHouse), "lf ledger & beam"); add(lf(g.depth), "ft joist span")
+        add(g.posts, `post(s) @ ${DECK_POST_SPACING_FT}'`); add(lf(g.height), "ft high")
+      }
     } else if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
       add(job.doors.filter((d) => d.type !== "exterior").reduce((s, d) => s + n(d.count), 0), "interior door(s)")
     }

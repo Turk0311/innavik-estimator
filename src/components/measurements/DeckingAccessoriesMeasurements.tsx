@@ -48,6 +48,7 @@ interface Props {
   onChange: (data: DeckingAccessoriesData) => void;
   deckSections?: DeckSectionDim[]; // from Decking tab — used to auto-calc fascia
   autoDeckScrewsLbs?: number;       // suggested from deck sqft (wood decks)
+  linkedValues?: Partial<DeckingAccessoriesData>; // fascia length from the Measurements tab
 }
 
 const inputCls =
@@ -76,8 +77,8 @@ function NumField({ label, unit, value, onChange, placeholder = "0" }: {
 
 function toFt(ft: number, inches: number) { return (ft || 0) + (inches || 0) / 12; }
 
-export default function DeckingAccessoriesMeasurements({ initialData, onChange, deckSections, autoDeckScrewsLbs = 0 }: Props) {
-  const [data, setData] = useState<DeckingAccessoriesData>({
+export default function DeckingAccessoriesMeasurements({ initialData, onChange, deckSections, autoDeckScrewsLbs = 0, linkedValues }: Props) {
+  const [own, setData] = useState<DeckingAccessoriesData>({
     fasciaBoardsFt:      initialData?.fasciaBoardsFt ?? 0,
     fasciaBoardsIn:      initialData?.fasciaBoardsIn ?? 0,
     fasciaBoardSize:     (initialData?.fasciaBoardSize as FasciaBoardSize) ?? "1x8",
@@ -92,8 +93,11 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
     topLocBoxes:      initialData?.topLocBoxes ?? 0,
   });
 
+  const data: DeckingAccessoriesData = linkedValues ? { ...own, ...linkedValues } : own;
+  const fasciaLocked = linkedValues?.fasciaBoardsFt !== undefined;
+
   function update<K extends keyof DeckingAccessoriesData>(key: K, value: DeckingAccessoriesData[K]) {
-    const next = { ...data, [key]: value };
+    const next = { ...own, [key]: value };
     setData(next);
     onChange(next);
   }
@@ -165,8 +169,8 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className={labelCls + " mb-0"}>Total Fascia Length</label>
-            <button
+            <label className={labelCls + " mb-0"}>Total Fascia Length{fasciaLocked && <span className="text-slate-500 ml-1">(front + both sides, from Measurements)</span>}</label>
+            {!fasciaLocked && <button
               type="button"
               onClick={autoFascia}
               disabled={!canAutoFascia}
@@ -176,7 +180,7 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               Auto
-            </button>
+            </button>}
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
@@ -186,7 +190,8 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
                 onChange={(e) => update("fasciaBoardsFt", e.target.value === "" ? 0 : Number(e.target.value))}
                 placeholder="0"
                 min="0"
-                className={inputCls}
+                disabled={fasciaLocked}
+                className={`${inputCls} ${fasciaLocked ? "opacity-60 cursor-not-allowed" : ""}`}
               />
               <span className="text-xs text-slate-500 pl-1">ft</span>
             </div>
@@ -198,7 +203,8 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
                 placeholder="0"
                 min="0"
                 max="11"
-                className={inputCls}
+                disabled={fasciaLocked}
+                className={`${inputCls} ${fasciaLocked ? "opacity-60 cursor-not-allowed" : ""}`}
               />
               <span className="text-xs text-slate-500 pl-1">in</span>
             </div>

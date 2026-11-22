@@ -40,6 +40,8 @@ export interface DeckFramingData {
 interface Props {
   initialData?: Partial<DeckFramingData>;
   onChange: (data: DeckFramingData) => void;
+  // Ledger, beam, joist span, posts, height and piers from the Measurements tab
+  linkedValues?: Partial<DeckFramingData>;
 }
 
 const inputCls =
@@ -50,8 +52,8 @@ const LUMBER_SIZES_LEDGER = ["2x8", "2x10", "2x12"];
 const LUMBER_SIZES_FLAT   = ["2x6", "2x8", "2x10", "2x12"];
 const LUMBER_SIZES_POST   = ["4x4", "6x6"];
 
-function NumField({ label, unit, value, onChange, placeholder = "0" }: {
-  label: string; unit?: string; value: number; onChange: (v: number) => void; placeholder?: string;
+function NumField({ label, unit, value, onChange, placeholder = "0", locked = false }: {
+  label: string; unit?: string; value: number; onChange: (v: number) => void; placeholder?: string; locked?: boolean;
 }) {
   return (
     <div>
@@ -64,17 +66,22 @@ function NumField({ label, unit, value, onChange, placeholder = "0" }: {
         onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
         placeholder={placeholder}
         min="0"
-        className={inputCls}
+        disabled={locked}
+        title={locked ? "Set on the Measurements tab" : undefined}
+        className={`${inputCls} ${locked ? "opacity-60 cursor-not-allowed" : ""}`}
       />
     </div>
   );
 }
 
-function FtInRow({ label, ft, inches, onFt, onIn }: {
+function FtInRow({ label, ft, inches, onFt, onIn, locked = false }: {
   label: string;
   ft: number; inches: number;
   onFt: (v: number) => void; onIn: (v: number) => void;
+  locked?: boolean;
 }) {
+  const cls = `${inputCls} ${locked ? "opacity-60 cursor-not-allowed" : ""}`;
+  const title = locked ? "Set on the Measurements tab" : undefined;
   return (
     <div>
       <label className={labelCls}>{label}</label>
@@ -86,7 +93,9 @@ function FtInRow({ label, ft, inches, onFt, onIn }: {
             onChange={(e) => onFt(e.target.value === "" ? 0 : Number(e.target.value))}
             placeholder="0"
             min="0"
-            className={inputCls}
+            disabled={locked}
+            title={title}
+            className={cls}
           />
           <span className="text-xs text-slate-500 pl-1">ft</span>
         </div>
@@ -98,7 +107,9 @@ function FtInRow({ label, ft, inches, onFt, onIn }: {
             placeholder="0"
             min="0"
             max="11"
-            className={inputCls}
+            disabled={locked}
+            title={title}
+            className={cls}
           />
           <span className="text-xs text-slate-500 pl-1">in</span>
         </div>
@@ -124,8 +135,8 @@ function SizeSelect({ label, value, onChange, sizes }: {
   );
 }
 
-export default function DeckFramingMeasurements({ initialData, onChange }: Props) {
-  const [data, setData] = useState<DeckFramingData>({
+export default function DeckFramingMeasurements({ initialData, onChange, linkedValues }: Props) {
+  const [own, setData] = useState<DeckFramingData>({
     ledgerFt:       initialData?.ledgerFt ?? 0,
     ledgerIn:       initialData?.ledgerIn ?? 0,
     ledgerSize:     initialData?.ledgerSize ?? "2x10",
@@ -152,8 +163,11 @@ export default function DeckFramingMeasurements({ initialData, onChange }: Props
     carpenterHours:      initialData?.carpenterHours ?? 0,
   });
 
+  const data: DeckFramingData = linkedValues ? { ...own, ...linkedValues } : own;
+  const locked = !!linkedValues;
+
   function update<K extends keyof DeckFramingData>(key: K, value: DeckFramingData[K]) {
-    const next = { ...data, [key]: value };
+    const next = { ...own, [key]: value };
     setData(next);
     onChange(next);
   }
@@ -186,6 +200,7 @@ export default function DeckFramingMeasurements({ initialData, onChange }: Props
         <div className="grid grid-cols-2 gap-4">
           <FtInRow
             label="Ledger Length"
+            locked={locked}
             ft={data.ledgerFt} inches={data.ledgerIn}
             onFt={(v) => update("ledgerFt", v)} onIn={(v) => update("ledgerIn", v)}
           />
@@ -202,6 +217,7 @@ export default function DeckFramingMeasurements({ initialData, onChange }: Props
         <div className="grid grid-cols-2 gap-4">
           <FtInRow
             label="Total Beam Length"
+            locked={locked}
             ft={data.beamFt} inches={data.beamIn}
             onFt={(v) => update("beamFt", v)} onIn={(v) => update("beamIn", v)}
           />
@@ -218,6 +234,7 @@ export default function DeckFramingMeasurements({ initialData, onChange }: Props
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <FtInRow
             label="Joist Span"
+            locked={locked}
             ft={data.joistSpanFt} inches={data.joistSpanIn}
             onFt={(v) => update("joistSpanFt", v)} onIn={(v) => update("joistSpanIn", v)}
           />
@@ -245,9 +262,10 @@ export default function DeckFramingMeasurements({ initialData, onChange }: Props
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Posts</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <NumField label="Post Count" value={data.postCount} onChange={(v) => update("postCount", v)} />
+          <NumField label="Post Count" value={data.postCount} onChange={(v) => update("postCount", v)} locked={locked} />
           <FtInRow
             label="Post Height"
+            locked={locked}
             ft={data.postHeightFt} inches={data.postHeightIn}
             onFt={(v) => update("postHeightFt", v)} onIn={(v) => update("postHeightIn", v)}
           />
@@ -292,6 +310,7 @@ export default function DeckFramingMeasurements({ initialData, onChange }: Props
                 label="Pier Count"
                 value={data.pierCount}
                 onChange={(v) => update("pierCount", v)}
+                locked={locked}
               />
 
               {/* Concrete-only fields */}

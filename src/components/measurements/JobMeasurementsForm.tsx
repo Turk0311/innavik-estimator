@@ -1,6 +1,7 @@
 "use client";
 
-import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, newRoom, roofArea, roomWallLf } from "@/lib/jobMeasurements";
+import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, newRoom, roofArea, roomWallLf, newDeckSection, deckGeometry, DECK_POST_SPACING_FT, DECK_GATE_WIDTH_FT } from "@/lib/jobMeasurements";
+import type { DeckSection } from "@/components/measurements/DeckMeasurements";
 import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements";
 import SidingMeasurements, { type HoverData } from "@/components/measurements/SidingMeasurements";
 
@@ -104,6 +105,10 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
   function setWindow(id: string, patch: Partial<WallWindowEntry>) {
     set("windows", job.windows.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   }
+  function setDeckSection(id: string, patch: Partial<DeckSection>) {
+    set("deckSections", job.deckSections.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
+  const deck = deckGeometry(job);
 
   const area = roofArea(job);
   const siding = sections.has("siding");
@@ -440,6 +445,67 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-t border-slate-700 pt-4">
               <Num label="Outside Corners" unit="count" value={job.interiorCorners} onChange={(v) => set("interiorCorners", v)} hint="Corner bead, framing" />
             </div>
+          )}
+        </div>
+      )}
+
+      {sections.has("deck") && (
+        <div className={cardCls}>
+          <div>
+            <h3 className={headCls}>Deck</h3>
+            <p className="text-[11px] text-slate-500 mt-1">Length runs along the house (ledger side); width goes out from the house.</p>
+          </div>
+          <div className="space-y-2">
+            {job.deckSections.map((s, idx) => {
+              const sqft = (s.lengthFt + s.lengthIn / 12) * (s.widthFt + s.widthIn / 12);
+              return (
+                <div key={s.id} className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[140px]">
+                    <label className={labelCls}>Section</label>
+                    <input type="text" value={s.label} onChange={(e) => setDeckSection(s.id, { label: e.target.value })} placeholder={`Section ${idx + 1}`} className={inputCls} />
+                  </div>
+                  <FtIn label="Along house" ft={s.lengthFt} inches={s.lengthIn} onChange={(lengthFt, lengthIn) => setDeckSection(s.id, { lengthFt, lengthIn })} />
+                  <FtIn label="Out from house" ft={s.widthFt} inches={s.widthIn} onChange={(widthFt, widthIn) => setDeckSection(s.id, { widthFt, widthIn })} />
+                  <p className="w-20 text-right text-sm text-slate-300 pb-2">{sqft > 0 ? `${Math.round(sqft)} sqft` : "—"}</p>
+                  <RemoveBtn title="Remove section" onClick={() => set("deckSections", job.deckSections.filter((x) => x.id !== s.id))} />
+                </div>
+              );
+            })}
+            <button onClick={() => set("deckSections", [...job.deckSections, newDeckSection()])} className="text-xs text-blue-400 hover:text-blue-300">+ Add Section</button>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-4 border-t border-slate-700 pt-4">
+            <FtIn label="Deck height" ft={job.deckHeightFt} inches={job.deckHeightIn} onChange={(deckHeightFt, deckHeightIn) => onChange({ ...job, deckHeightFt, deckHeightIn })} />
+            <div className="w-24"><Num label="Stair flights" value={job.deckStairs} onChange={(v) => set("deckStairs", v)} /></div>
+            <div className="w-24"><Num label="Risers / flight" value={job.deckStairRisers} onChange={(v) => set("deckStairRisers", v)} placeholder="7" /></div>
+            <FtIn label="Stair width" ft={job.deckStairWidthFt} inches={job.deckStairWidthIn} onChange={(deckStairWidthFt, deckStairWidthIn) => onChange({ ...job, deckStairWidthFt, deckStairWidthIn })} />
+          </div>
+
+          <div className="flex flex-wrap items-end gap-4 border-t border-slate-700 pt-4">
+            <div>
+              <label className={labelCls}>Railing on</label>
+              <div className="flex gap-1">
+                {([["deckRailLeft", "Left"], ["deckRailFront", "Front"], ["deckRailRight", "Right"]] as const).map(([key, label]) => (
+                  <button key={key} type="button" onClick={() => set(key, !job[key])}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      job[key] ? "bg-blue-600 border-blue-600 text-white" : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="w-24"><Num label="Gates" value={job.deckGates} onChange={(v) => set("deckGates", v)} hint={`${DECK_GATE_WIDTH_FT}' each`} /></div>
+          </div>
+
+          {deck.sqft > 0 && (
+            <p className="text-xs text-slate-400">
+              <span className="font-semibold text-white">{Math.round(deck.sqft)} sqft</span>
+              {" · "}{Math.round(deck.alongHouse * 10) / 10} lf ledger & beam
+              {" · "}{deck.posts} posts @ {DECK_POST_SPACING_FT}&apos;
+              {" · "}{Math.round(deck.railLf * 10) / 10} lf railing
+              {deck.stairGap > 0 && <> (less {Math.round(deck.stairGap * 10) / 10}&apos; stair opening)</>}
+            </p>
           )}
         </div>
       )}

@@ -2491,26 +2491,31 @@ function isLumber(name: string): boolean {
   return !LUMBER_EXCLUDE.some(kw => n.includes(kw))
 }
 
-function findLumber(
-  products: Product[],
-  size: string,
-  lengthFt: number,
-  ...fallbackKeywords: string[]
-): Product | undefined {
-  const sizeLow = size.toLowerCase()
-  const lenStr  = `${lengthFt}'`
-  const exact = products.find(p => {
-    const n = p.name.toLowerCase()
-    return isLumber(p.name) && n.includes(sizeLow) && n.includes(lenStr)
-  })
-  if (exact) return exact
-  // Size-only fallback — lumber products only
-  const sizeMatch = products.find(p => isLumber(p.name) && p.name.toLowerCase().includes(sizeLow))
-  if (sizeMatch) return sizeMatch
-  // Keyword fallback (e.g. 'post', 'joist') — lumber products only
-  return products.find(p =>
-    isLumber(p.name) && fallbackKeywords.some(kw => p.name.toLowerCase().includes(kw.toLowerCase()))
-  )
+// Deck framing is pressure-treated lumber. Catalog names read like 2"x10"x16' PT Green, so match
+// size and length with the inch marks stripped; cedar and CedarTone are left out.
+function stockedPT(products: Product[], size: string): { p: Product; len: number }[] {
+  const [a, b] = size.toLowerCase().split('x')
+  const rx = new RegExp(`^${a}x${b}x(\\d+)'`)
+  return products
+    .filter((p) => isLumber(p.name) && !/cedar/i.test(p.name) &&
+      (/pressure treated/i.test(p.category) || /\bpt\b/i.test(p.name)))
+    .map((p) => ({ p, len: Number(p.name.toLowerCase().replace(/["\s]/g, '').match(rx)?.[1] ?? 0) }))
+    .filter((x) => x.len > 0)
+    .sort((x, y) => x.len - y.len || x.p.cost - y.p.cost)
+}
+
+// The exact length if it's stocked, else the next longer board
+function findLumber(products: Product[], size: string, lengthFt: number): Product | undefined {
+  const stocked = stockedPT(products, size)
+  return (stocked.find((x) => x.len === lengthFt) ?? stocked.find((x) => x.len >= lengthFt))?.p
+}
+
+// Board length to buy for a run that can be spliced (ledger, beam): the shortest stocked board that
+// covers it, else the longest stocked board, spliced
+function stockLen(products: Product[], size: string, lf: number): number {
+  const stocked = stockedPT(products, size)
+  if (stocked.length === 0) return nextStdLen(lf)
+  return (stocked.find((x) => x.len >= lf) ?? stocked[stocked.length - 1]).len
 }
 
 // ---------------------------------------------------------------------------
@@ -3661,9 +3666,9 @@ export function calculateDeckFramingAssembly(
   // Single continuous run — pick the next standard length ≥ ledger LF.
   // If ledger > 20', splice with two pieces.
   if (ledgerLf > 0) {
-    const boardLen  = nextStdLen(ledgerLf)
-    const qty       = Math.ceil(ledgerLf / boardLen)   // usually 1, 2 if very long
-    const product   = findLumber(products, ledgerSize, boardLen, 'ledger')
+    const boardLen  = stockLen(products, ledgerSize, ledgerLf)
+    const qty       = Math.ceil(ledgerLf / boardLen)   // spliced when longer than the longest stocked board
+    const product   = findLumber(products, ledgerSize, boardLen)
     items.push({
       description: product?.name ?? `Ledger board (${ledgerSize}×${boardLen}')`,
       quantity: qty,
@@ -3680,9 +3685,9 @@ export function calculateDeckFramingAssembly(
   // ── BEAMS ───────────────────────────────────────────────────────────────────
   // Same as ledger — pick the board length that covers the span.
   if (beamLf > 0) {
-    const boardLen  = nextStdLen(beamLf)
+    const boardLen  = stockLen(products, beamSize, beamLf)
     const qty       = Math.ceil(beamLf / boardLen)
-    const product   = findLumber(products, beamSize, boardLen, 'beam')
+    const product   = findLumber(products, beamSize, boardLen)
     items.push({
       description: product?.name ?? `Beams (${beamSize}×${boardLen}')`,
       quantity: qty,
@@ -3700,7 +3705,7 @@ export function calculateDeckFramingAssembly(
   // One board per joist, length = next standard ≥ joist span.
   if (joistCount > 0 && joistSpan > 0) {
     const boardLen  = nextStdLen(joistSpan)
-    const product   = findLumber(products, joistSize, boardLen, 'joist')
+    const product   = findLumber(products, joistSize, boardLen)
     items.push({
       description: product?.name ?? `Joists (${joistSize}×${boardLen}') — ${joistCount} pc`,
       quantity: joistCount,
@@ -3718,11 +3723,11 @@ export function calculateDeckFramingAssembly(
   // Buy the shortest standard board that covers the post height.
   // One board per post (cuttable to height with waste).
   if (postCount > 0 && postHt > 0) {
-    const boardLen  = nextStdLen(postHt)
+    const boardLen  = stockLen(products, postSize, postHt)
     // Check if we can cut multiple posts from one long board (e.g. 4×3' posts → 1×12')
     const postsPerBoard = Math.floor(boardLen / postHt)
     const qty       = postsPerBoard > 1 ? Math.ceil(postCount / postsPerBoard) : postCount
-    const product   = findLumber(products, postSize, boardLen, 'post')
+    const product   = findLumber(products, postSize, boardLen)
     const note      = postsPerBoard > 1
       ? `${postCount} posts, ${postsPerBoard} cuts/board`
       : `${postCount} pc × ${postHt.toFixed(1)}'`
@@ -3815,7 +3820,7 @@ export function calculateDeckFramingAssembly(
   if (blockingLf > 0) {
     const blockBoardLen = 8   // standard blocking board length
     const qty           = Math.ceil(blockingLf / blockBoardLen)
-    const product       = findLumber(products, joistSize, blockBoardLen, 'blocking')
+    const product       = findLumber(products, joistSize, blockBoardLen)
     items.push({
       description: product?.name ?? `Blocking (${joistSize}×${blockBoardLen}')`,
       quantity: qty,

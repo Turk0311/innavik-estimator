@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import JobMeasurementsForm from "@/components/measurements/JobMeasurementsForm";
 import {
   type JobMeasurements, JOB_TRADE_TYPE, LINKED_TABS,
-  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab, stripRoomEntries, interiorPaintSqft,
+  jobFromSaved, sectionsForTabs, deriveForTab, summaryForTab, stripRoomEntries, interiorPaintSqft, DECK_TABS,
 } from "@/lib/jobMeasurements";
 import { useRouter } from "next/navigation";
 import RoofingMeasurements, { type RoofingData } from "@/components/measurements/RoofingMeasurements";
@@ -407,8 +407,12 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
 
   // ── Deck area sync ───────────────────────────────────────────────────────
 
+  // Deck tabs take sections, stairs, railing and framing sizes from the Measurements tab
+  const deckView = { ...deckData, ...(deriveForTab("Decking", job) ?? {}) } as DeckData;
+  const framingView = { ...deckFramingData, ...(deriveForTab("Deck Framing", job) ?? {}) } as DeckFramingData;
+
   const deckTotalSqft = Math.round(
-    (deckData.sections ?? []).reduce((sum, s) => {
+    (deckView.sections ?? []).reduce((sum, s) => {
       const l = (s.lengthFt ?? 0) + (s.lengthIn ?? 0) / 12;
       const w = (s.widthFt  ?? 0) + (s.widthIn  ?? 0) / 12;
       return sum + l * w;
@@ -429,23 +433,23 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
 
   // ── Deck Framing → Framing Accessories auto values ───────────────────────
 
-  const framingLedgerLf      = (deckFramingData.ledgerFt ?? 0) + (deckFramingData.ledgerIn ?? 0) / 12;
-  const framingJoistSpacingIn = deckFramingData.joistSpacingIn ?? 16;
+  const framingLedgerLf      = (framingView.ledgerFt ?? 0) + (framingView.ledgerIn ?? 0) / 12;
+  const framingJoistSpacingIn = framingView.joistSpacingIn ?? 16;
   // When joistCount = 0 (auto), calculate from ledger length ÷ spacing
   const framingAutoJoistCount = framingLedgerLf > 0 && framingJoistSpacingIn > 0
     ? Math.ceil(framingLedgerLf / (framingJoistSpacingIn / 12)) + 1
     : 0;
-  const framingEffectiveJoistCount = (deckFramingData.joistCount ?? 0) > 0
-    ? (deckFramingData.joistCount ?? 0)
+  const framingEffectiveJoistCount = (framingView.joistCount ?? 0) > 0
+    ? (framingView.joistCount ?? 0)
     : framingAutoJoistCount;
 
   const framingAutoJoistHangers = framingEffectiveJoistCount * 2;
-  const framingAutoPostAnchors  = deckFramingData.postCount  ?? 0;
-  const framingBeamLf           = (deckFramingData.beamFt ?? 0) + (deckFramingData.beamIn ?? 0) / 12;
+  const framingAutoPostAnchors  = framingView.postCount  ?? 0;
+  const framingBeamLf           = (framingView.beamFt ?? 0) + (framingView.beamIn ?? 0) / 12;
   const framingAutoBeamBrackets = framingBeamLf > 0 ? Math.ceil(framingBeamLf / 3) : 0;
   // LedgerLOKs: 2 every 16" along the ledger · carriage bolts: 2 per post (post-to-beam)
   const framingAutoLagScrews     = framingLedgerLf > 0 ? Math.ceil(framingLedgerLf / (16 / 12)) * 2 : 0;
-  const framingAutoCarriageBolts = (deckFramingData.postCount ?? 0) * 2;
+  const framingAutoCarriageBolts = (framingView.postCount ?? 0) * 2;
 
   // ── Wall-section sync ────────────────────────────────────────────────────
 
@@ -460,6 +464,8 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   // Which tabs show the sync banner and what they'll receive
   type SyncInfo = { label: string };
   function getSyncInfo(tab: string): SyncInfo | null {
+    // Deck tabs are fed from the Measurements tab now — nothing to sync by hand
+    if (DECK_TABS.includes(tab)) return null;
     if (tab === "Decking Accessories") {
       if (deckTotalSqft === 0) return null;
       return { label: `${deckTotalSqft} sqft from Decking` };
@@ -851,13 +857,13 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <KitchenMeasurements initialData={kitchenData} onChange={setKitchenData} />
         )}
         {activeTab === "Decking" && (
-          <DeckMeasurements initialData={deckData} onChange={setDeckData} products={deckProducts} />
+          <DeckMeasurements initialData={deckData} onChange={setDeckData} products={deckProducts} linkedValues={deriveForTab("Decking", job) as Partial<DeckData>} />
         )}
         {activeTab === "Decking Accessories" && (
-          <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckData.sections} autoDeckScrewsLbs={deckAutoScrewLbs} />
+          <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckView.sections} autoDeckScrewsLbs={deckAutoScrewLbs} linkedValues={deriveForTab("Decking Accessories", job) as Partial<DeckingAccessoriesData>} />
         )}
         {activeTab === "Deck Framing" && (
-          <DeckFramingMeasurements key={deckFramingKey} initialData={deckFramingData} onChange={setDeckFramingData} />
+          <DeckFramingMeasurements key={deckFramingKey} initialData={deckFramingData} onChange={setDeckFramingData} linkedValues={deriveForTab("Deck Framing", job) as Partial<DeckFramingData>} />
         )}
         {activeTab === "Deck Framing Accessories" && (
           <DeckFramingAccessoriesMeasurements

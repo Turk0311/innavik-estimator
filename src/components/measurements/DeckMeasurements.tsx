@@ -240,6 +240,8 @@ interface Props {
   initialData?: Partial<DeckData>;
   onChange: (data: DeckData) => void;
   products?: { id: string; name: string; cost: number; unit: string; subCategory: string | null }[];
+  // Deck sections, stairs and railing runs from the Measurements tab
+  linkedValues?: Partial<DeckData>;
 }
 
 // ---------------------------------------------------------------------------
@@ -483,8 +485,8 @@ function RailRunsTable({
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function DeckMeasurements({ initialData, onChange, products }: Props) {
-  const [data, setData] = useState<DeckData>({
+export default function DeckMeasurements({ initialData, onChange, products, linkedValues }: Props) {
+  const [own, setData] = useState<DeckData>({
     sections:              initialData?.sections ?? [newSection()],
     wasteFactor:           initialData?.wasteFactor ?? 10,
     deckMaterials:         initialData?.deckMaterials ?? [],
@@ -537,8 +539,10 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
     poolRightLegWidthIn:   initialData?.poolRightLegWidthIn ?? 0,
   });
 
+  const data: DeckData = linkedValues ? { ...own, ...linkedValues } : own;
+
   function update<K extends keyof DeckData>(key: K, value: DeckData[K]) {
-    const next = { ...data, [key]: value };
+    const next = { ...own, [key]: value };
     setData(next);
     onChange(next);
   }
@@ -972,6 +976,15 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
         )}
       </div>
 
+      {linkedValues ? (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 grid grid-cols-2 sm:grid-cols-3 gap-4 items-end">
+          <div>
+            <p className="text-xs text-slate-500 mb-0.5">Deck area (from Measurements)</p>
+            <p className="text-lg font-semibold text-white">{Math.round(sectionsArea)} sqft</p>
+          </div>
+          <NumField label="Waste Factor" unit="%" value={data.wasteFactor} onChange={(v) => update("wasteFactor", v)} />
+        </div>
+      ) : (<>
       {/* ── Deck Sections ── */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Deck Sections</h3>
@@ -1107,6 +1120,8 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
           <NumField label="Waste Factor" unit="%" value={data.wasteFactor} onChange={(v) => update("wasteFactor", v)} />
         )}
       </div>
+
+            </>)}
 
       {/* ── Pool Deck ── */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
@@ -1560,7 +1575,8 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Stairs</h3>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <NumField
+{!linkedValues && (<>
+                    <NumField
             label="Stair Flights"
             unit="count"
             value={data.stairs}
@@ -1581,7 +1597,8 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
               onIn={(v) => update("stairWidthIn", v)}
             />
           </div>
-          <NumField
+          </>)}
+                    <NumField
             label="Stringers per Flight"
             value={data.stairStringers}
             onChange={(v) => update("stairStringers", v)}
@@ -1685,6 +1702,12 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
           </div>
         </div>
 
+        {linkedValues ? (
+          <p className="text-sm text-slate-300">
+            Railing: <span className="font-semibold text-white">{totalRailLf.toFixed(1)} lf</span>
+            <span className="text-xs text-slate-500 ml-1">— sides, gates and stair opening are set on the Measurements tab; stair rail is worked out from the stairs</span>
+          </p>
+        ) : (<>
         {/* Deck railing runs */}
         <div className="space-y-3">
           <p className="text-sm font-medium text-slate-300">
@@ -1740,6 +1763,8 @@ export default function DeckMeasurements({ initialData, onChange, products }: Pr
             </>
           )}
         </div>
+
+                </>)}
 
         {/* Post / baluster config */}
         {totalRailLf > 0 && (

@@ -3801,18 +3801,29 @@ export function calculateDeckFramingAccessoriesAssembly(
 ): AssemblyItem[] {
   const items: AssemblyItem[] = []
 
-  const joistHangers    = num(measurements.joistHangers)
-  const postAnchors     = num(measurements.postAnchors)
+  // Typed quantities win; 0 uses the suggestion worked out from the Deck Framing tab
+  const pick = (entered: unknown, auto: unknown) => num(entered) > 0 ? num(entered) : num(auto)
+  const joistHangers    = pick(measurements.joistHangers, measurements.autoJoistHangers)
+  const postAnchors     = pick(measurements.postAnchors, measurements.autoPostAnchors)
   const postAnchorSize  = String(measurements.postAnchorSize ?? '6x6')
-  const beamBrackets    = num(measurements.beamBrackets)
-  const lagScrews       = num(measurements.lagScrews)
+  const beamBrackets    = pick(measurements.beamBrackets, measurements.autoBeamBrackets)
+  const lagScrews       = pick(measurements.lagScrews, measurements.autoLagScrews)
   const structScrews    = num(measurements.structuralScrewsLbs)
-  const carrageBolts    = num(measurements.carrageBolts)
+  const carrageBolts    = pick(measurements.carrageBolts, measurements.autoCarriageBolts)
 
   if (joistHangers > 0) {
-    const product = findProduct(products, 'joist hanger', 'hanger')
+    // Match the joist depth to the hanger's range — '2"x8"-10" Joist Hanger' fits 2x8 and 2x10
+    const joistSize  = String(measurements.joistSize ?? '2x8')
+    const joistDepth = Number(joistSize.split('x')[1]) || 8
+    const product = products.find((p) => {
+      if (!/joist hanger/i.test(p.name)) return false
+      const range = p.name.replace(/["\s]/g, '').match(/2x(\d+)(?:-(\d+))?/i)
+      if (!range) return false
+      const lo = Number(range[1]), hi = Number(range[2] ?? range[1])
+      return joistDepth >= lo && joistDepth <= hi
+    })
     items.push({
-      description: product?.name ?? 'Joist hangers',
+      description: product?.name ?? `${joistSize} joist hangers — add to catalog`,
       quantity: joistHangers,
       unit: 'ea',
       cost: product?.cost ?? 4.50,
@@ -3855,9 +3866,9 @@ export function calculateDeckFramingAccessoriesAssembly(
   }
 
   const simpleEntries: [number, string, string[], number, string][] = [
-    [lagScrews,    'Lag screws',        ['lag screw', 'lag bolt'],      0.85, 'ea'],
-    [structScrews, 'Structural screws', ['structural screw', 'screw'],  22,   'lb'],
-    [carrageBolts, 'Carriage bolts',    ['carriage bolt', 'bolt'],      0.65, 'ea'],
+    [lagScrews,    'LedgerLOK / lag screws', ['ledgerlok', 'lag screw', 'lag bolt'], 0.85, 'ea'],
+    [structScrews, 'Structural screws',      ['structural screw', 'timberlok', 'headlok'], 22, 'lb'],
+    [carrageBolts, 'Carriage bolts',         ['carriage bolt'], 0.65, 'ea'],
   ]
 
   for (const [qty, desc, keywords, fallbackCost, unit] of simpleEntries) {

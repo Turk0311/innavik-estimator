@@ -281,7 +281,16 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
         };
       }
       case "Deck Framing": return deckFramingData as unknown as Record<string, unknown>;
-      case "Deck Framing Accessories": return deckFramingAccData as unknown as Record<string, unknown>;
+      case "Deck Framing Accessories": return {
+        ...deckFramingAccData as unknown as Record<string, unknown>,
+        // Suggestions from Deck Framing — used wherever a quantity is left at 0
+        autoJoistHangers: framingAutoJoistHangers,
+        autoPostAnchors: framingAutoPostAnchors,
+        autoBeamBrackets: framingAutoBeamBrackets,
+        autoLagScrews: framingAutoLagScrews,
+        autoCarriageBolts: framingAutoCarriageBolts,
+        joistSize: deckFramingData.joistSize,
+      };
       case "Gutters": return gutterData as unknown as Record<string, unknown>;
       // Door Assembly shares the Interior Doors choices
       case "Interior Doors":
@@ -426,6 +435,9 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   const framingAutoPostAnchors  = deckFramingData.postCount  ?? 0;
   const framingBeamLf           = (deckFramingData.beamFt ?? 0) + (deckFramingData.beamIn ?? 0) / 12;
   const framingAutoBeamBrackets = framingBeamLf > 0 ? Math.ceil(framingBeamLf / 3) : 0;
+  // LedgerLOKs: 2 every 16" along the ledger · carriage bolts: 2 per post (post-to-beam)
+  const framingAutoLagScrews     = framingLedgerLf > 0 ? Math.ceil(framingLedgerLf / (16 / 12)) * 2 : 0;
+  const framingAutoCarriageBolts = (deckFramingData.postCount ?? 0) * 2;
 
   // ── Wall-section sync ────────────────────────────────────────────────────
 
@@ -847,6 +859,8 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
             autoJoistHangers={framingAutoJoistHangers}
             autoPostAnchors={framingAutoPostAnchors}
             autoBeamBrackets={framingAutoBeamBrackets}
+            autoLagScrews={framingAutoLagScrews}
+            autoCarriageBolts={framingAutoCarriageBolts}
           />
         )}
         {activeTab === "Interior Doors" && (

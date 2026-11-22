@@ -43,6 +43,8 @@ interface Props {
   autoJoistHangers?: number;
   autoPostAnchors?: number;
   autoBeamBrackets?: number;
+  autoLagScrews?: number;
+  autoCarriageBolts?: number;
 }
 
 const inputCls =
@@ -77,6 +79,8 @@ export default function DeckFramingAccessoriesMeasurements({
   autoJoistHangers = 0,
   autoPostAnchors = 0,
   autoBeamBrackets = 0,
+  autoLagScrews = 0,
+  autoCarriageBolts = 0,
 }: Props) {
   const [data, setData] = useState<DeckFramingAccessoriesData>({
     joistHangers:        initialData?.joistHangers ?? 0,
@@ -225,7 +229,8 @@ export default function DeckFramingAccessoriesMeasurements({
         <div>
           <p className="text-xs font-medium text-slate-400 mb-2">Lag Screws / LedgerLocs</p>
           <div className="grid grid-cols-2 gap-4">
-            <NumField label="Qty" unit="ea" value={data.lagScrews} onChange={(v) => update("lagScrews", v)} />
+            <NumField label="Qty" unit="ea · 0 = auto" value={data.lagScrews} onChange={(v) => update("lagScrews", v)}
+              placeholder={autoLagScrews > 0 ? `auto (${autoLagScrews})` : "0"} />
             <div>
               <label className={labelCls}>Size</label>
               <select
@@ -239,16 +244,18 @@ export default function DeckFramingAccessoriesMeasurements({
               </select>
             </div>
           </div>
-          {data.lagScrews > 0 && (
+          {(data.lagScrews || autoLagScrews) > 0 && (
             <p className="text-xs text-slate-400 mt-2">
-              = <span className="font-semibold text-white">{data.lagScrews} ea</span> @ {data.lagScrewSize}
+              = <span className="font-semibold text-white">{data.lagScrews || autoLagScrews} ea</span> @ {data.lagScrewSize}
+              {!data.lagScrews && <span className="text-slate-500"> · 2 every 16&quot; of ledger</span>}
             </p>
           )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-2 gap-4 pt-1 border-t border-slate-700">
           <NumField label="Structural Screws" unit="lbs" value={data.structuralScrewsLbs} onChange={(v) => update("structuralScrewsLbs", v)} />
-          <NumField label="Carriage Bolts" unit="ea" value={data.carrageBolts} onChange={(v) => update("carrageBolts", v)} />
+          <NumField label="Carriage Bolts" unit="ea · 0 = auto" value={data.carrageBolts} onChange={(v) => update("carrageBolts", v)}
+            placeholder={autoCarriageBolts > 0 ? `auto (${autoCarriageBolts}) · 2 per post` : "0"} />
         </div>
       </div>
     </div>

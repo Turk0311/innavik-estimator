@@ -69,7 +69,7 @@ function NumField({ label, unit, value, onChange, placeholder = "0" }: {
         type="number"
         value={value === 0 ? "" : value}
         onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
-        placeholder="0"
+        placeholder={placeholder}
         min="0"
         className={inputCls}
       />
@@ -429,6 +429,7 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
             unit="carton · 0 = auto: SQ boards → Cortex, GV → ConceaLoc"
             value={data.cortexKitCartons}
             onChange={(v) => update("cortexKitCartons", v)}
+            placeholder={boardFastenerSuggestions.length > 0 ? "auto (see Suggested below)" : "0"}
           />
         </div>
 

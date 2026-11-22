@@ -49,6 +49,8 @@ interface Props {
   deckSections?: DeckSectionDim[]; // from Decking tab — used to auto-calc fascia
   autoDeckScrewsLbs?: number;       // suggested from deck sqft (wood decks)
   linkedValues?: Partial<DeckingAccessoriesData>; // fascia length from the Measurements tab
+  // Board fasteners the build will add for each package (SQ → Cortex, GV → ConceaLoc)
+  boardFastenerSuggestions?: { pkg: string; board: string; text: string }[];
 }
 
 const inputCls =
@@ -77,7 +79,7 @@ function NumField({ label, unit, value, onChange, placeholder = "0" }: {
 
 function toFt(ft: number, inches: number) { return (ft || 0) + (inches || 0) / 12; }
 
-export default function DeckingAccessoriesMeasurements({ initialData, onChange, deckSections, autoDeckScrewsLbs = 0, linkedValues }: Props) {
+export default function DeckingAccessoriesMeasurements({ initialData, onChange, deckSections, autoDeckScrewsLbs = 0, linkedValues, boardFastenerSuggestions = [] }: Props) {
   const [own, setData] = useState<DeckingAccessoriesData>({
     fasciaBoardsFt:      initialData?.fasciaBoardsFt ?? 0,
     fasciaBoardsIn:      initialData?.fasciaBoardsIn ?? 0,
@@ -429,6 +431,34 @@ export default function DeckingAccessoriesMeasurements({ initialData, onChange, 
             onChange={(v) => update("cortexKitCartons", v)}
           />
         </div>
+
+        {/* What the build adds on its own */}
+        {(() => {
+          const typed = data.cortexKitCartons > 0 || data.conceLocBoxes > 0 || data.topLocBoxes > 0;
+          const screws = data.deckScrewsLbs > 0 ? data.deckScrewsLbs : autoDeckScrewsLbs;
+          if (boardFastenerSuggestions.length === 0 && screws === 0) return null;
+          return (
+            <div className="rounded-lg bg-slate-700/40 border border-slate-600 px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Suggested</p>
+              {screws > 0 && (
+                <p className="text-sm text-slate-300">
+                  Deck screws: <span className="font-semibold text-white">{screws} lb</span>
+                  <span className="text-slate-500"> ({Math.ceil(screws / 5)} × 5 lb box)</span>
+                </p>
+              )}
+              {typed ? (
+                boardFastenerSuggestions.length > 0 && (
+                  <p className="text-xs text-amber-400">Board fasteners typed in above are used instead of the suggestion.</p>
+                )
+              ) : boardFastenerSuggestions.map((s) => (
+                <p key={s.pkg} className="text-sm text-slate-300">
+                  <span className="text-slate-500">{s.pkg} · {s.board}:</span>{" "}
+                  <span className="font-semibold text-white">{s.text}</span>
+                </p>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { minMarkupFor } from "@/lib/pricing"
+import { boardFastenerPlan, CONCEALOC_DEFAULT_PRICES } from "@/lib/deckFasteners"
 // Assembly calculation engine
 // Takes raw field measurements and returns a list of pre-calculated estimate items
 
@@ -3514,33 +3515,26 @@ export function calculateDeckingAccessoriesAssembly(
       .sort((a, b) => a.cost - b.cost)
     const TIERS: AssemblyItem['tier'][] = ['GOOD', 'BETTER', 'BEST', 'GOOD_PLUS', 'BETTER_PLUS', 'BEST_PLUS']
     const conceaLoc = (size: number) => products.find((p) => /concea?loc/i.test(p.name) && p.name.includes(`${size} sqft`))
+    const [b1000, b500, b100] = [conceaLoc(1000), conceaLoc(500), conceaLoc(100)]
+    const prices = {
+      box100: b100?.cost ?? CONCEALOC_DEFAULT_PRICES.box100,
+      box500: b500?.cost ?? CONCEALOC_DEFAULT_PRICES.box500,
+      box1000: b1000?.cost ?? CONCEALOC_DEFAULT_PRICES.box1000,
+    }
     boards.forEach((board, idx) => {
       const tier = TIERS[idx] ?? 'BEST_PLUS'
       const push = (product: Product | undefined, fallback: string, quantity: number, cost: number) => items.push({
         description: product?.name ?? fallback, quantity, unit: 'box', cost: product?.cost ?? cost,
         markup: DEFAULT_MARKUP, tier, category: 'Decking Accessories', isLabor: false, productId: product?.id,
       })
-      if (/\bSQ\b/i.test(board.name)) {
-        // AZEK lines (Harvest, Landmark, Vintage) are PVC; the rest are composite
-        const isPvc = /\b(HARVEST|LANDMARK|VINTAGE)\b(?!\s*\+)/i.test(board.name)
-        const kit = products.find((p) => /cortex/i.test(p.name) && /300\s*sq/i.test(p.name) && (isPvc ? /pvc/i : /composite/i).test(p.name))
-        push(kit, `Cortex ${isPvc ? 'PVC' : 'Composite'} 300 sqft`, Math.ceil(deckSqft / 300), 323)
-      } else if (/\bGV\b/i.test(board.name)) {
-        // Cheapest mix of 1000 / 500 / 100 sqft boxes
-        const [b1000, b500, b100] = [conceaLoc(1000), conceaLoc(500), conceaLoc(100)]
-        const c100 = b100?.cost ?? 149, c500 = b500?.cost ?? 703, c1000 = b1000?.cost ?? 1367
-        const big = Math.floor(deckSqft / 1000)
-        const rest = deckSqft - big * 1000
-        const options = [
-          { n1000: 0, n500: 0, n100: Math.ceil(rest / 100) },
-          { n1000: 0, n500: 1, n100: Math.ceil(Math.max(0, rest - 500) / 100) },
-          { n1000: rest > 0 ? 1 : 0, n500: 0, n100: 0 },
-        ]
-        const best = options.sort((a, b) =>
-          (a.n1000 * c1000 + a.n500 * c500 + a.n100 * c100) - (b.n1000 * c1000 + b.n500 * c500 + b.n100 * c100))[0]
-        if (big + best.n1000 > 0) push(b1000, 'ConceaLoc hidden fasteners 1000 sqft', big + best.n1000, c1000)
-        if (best.n500 > 0) push(b500, 'ConceaLoc hidden fasteners 500 sqft (gun)', best.n500, c500)
-        if (best.n100 > 0) push(b100, 'ConceaLoc hidden fasteners 100 sqft', best.n100, c100)
+      const plan = boardFastenerPlan(board.name, deckSqft, prices)
+      if (plan?.kind === 'cortex') {
+        const kit = products.find((p) => /cortex/i.test(p.name) && /300\s*sq/i.test(p.name) && (plan.pvc ? /pvc/i : /composite/i).test(p.name))
+        push(kit, `Cortex ${plan.pvc ? 'PVC' : 'Composite'} 300 sqft`, plan.kits, 323)
+      } else if (plan?.kind === 'concealoc') {
+        if (plan.n1000 > 0) push(b1000, 'ConceaLoc hidden fasteners 1000 sqft', plan.n1000, prices.box1000)
+        if (plan.n500 > 0) push(b500, 'ConceaLoc hidden fasteners 500 sqft (gun)', plan.n500, prices.box500)
+        if (plan.n100 > 0) push(b100, 'ConceaLoc hidden fasteners 100 sqft', plan.n100, prices.box100)
       }
     })
   }

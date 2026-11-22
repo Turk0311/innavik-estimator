@@ -21,6 +21,7 @@ import DeckingAccessoriesMeasurements, { type DeckingAccessoriesData } from "@/c
 import DeckFramingMeasurements, { type DeckFramingData } from "@/components/measurements/DeckFramingMeasurements";
 import DeckFramingAccessoriesMeasurements, { type DeckFramingAccessoriesData } from "@/components/measurements/DeckFramingAccessoriesMeasurements";
 import GutterMeasurements, { type GutterData } from "@/components/measurements/GutterMeasurements";
+import { boardFastenerPlan, describePlan } from "@/lib/deckFasteners";
 import InteriorDoorsMeasurements, { type InteriorDoorsData } from "@/components/measurements/InteriorDoorsMeasurements";
 import WallAssemblyMeasurements, { type WallAssemblyData } from "@/components/measurements/WallAssemblyMeasurements";
 import InsulationMeasurements, { type InsulationData } from "@/components/measurements/InsulationMeasurements";
@@ -423,6 +424,16 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   const deckIsTimberTech = (deckData.deckProductIds ?? []).some((pid) =>
     deckProducts.find((dp) => dp.id === pid)?.subCategory?.toLowerCase().includes("collection"));
   const deckAutoScrewLbs = deckTotalSqft > 0 && !deckIsTimberTech ? Math.ceil((deckTotalSqft / 100) * 5) : 0;
+
+  // Board fasteners per package, in the same cheapest-first order the build uses
+  const PKG_LABELS = ["Good", "Better", "Best", "Good+", "Better+", "Best+"];
+  const boardFastenerSuggestions = (deckView.deckProductIds ?? [])
+    .map((pid) => deckProducts.find((dp) => dp.id === pid))
+    .filter((p): p is NonNullable<typeof p> => !!p)
+    .sort((a, b) => a.cost - b.cost)
+    .map((p, idx) => ({ pkg: PKG_LABELS[idx] ?? `Option ${idx + 1}`, board: p.name, plan: boardFastenerPlan(p.name, deckTotalSqft) }))
+    .filter((x) => x.plan)
+    .map((x) => ({ pkg: x.pkg, board: x.board, text: describePlan(x.plan) }));
 
   // First deck section dims — used to seed Deck Framing (ledger = width, joist span = length)
   const firstDeckSection = (deckData.sections ?? [])[0];
@@ -860,7 +871,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <DeckMeasurements initialData={deckData} onChange={setDeckData} products={deckProducts} linkedValues={deriveForTab("Decking", job) as Partial<DeckData>} />
         )}
         {activeTab === "Decking Accessories" && (
-          <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckView.sections} autoDeckScrewsLbs={deckAutoScrewLbs} linkedValues={deriveForTab("Decking Accessories", job) as Partial<DeckingAccessoriesData>} />
+          <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckView.sections} autoDeckScrewsLbs={deckAutoScrewLbs} boardFastenerSuggestions={boardFastenerSuggestions} linkedValues={deriveForTab("Decking Accessories", job) as Partial<DeckingAccessoriesData>} />
         )}
         {activeTab === "Deck Framing" && (
           <DeckFramingMeasurements key={deckFramingKey} initialData={deckFramingData} onChange={setDeckFramingData} linkedValues={deriveForTab("Deck Framing", job) as Partial<DeckFramingData>} />

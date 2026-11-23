@@ -21,8 +21,6 @@ import {
   calculateInteriorDoorsAssembly,
   calculateInteriorDoorHardwareAssembly,
   calculateFlooringAssembly,
-  calculateTileAssembly,
-  calculateBathroomAssembly,
   calculateInsulationAssembly,
   calculateInsulationAccessoriesAssembly,
   calculateDrywallAssembly,
@@ -31,6 +29,7 @@ import {
   calculateExteriorTrimAssembly,
   type MeasurementData,
 } from "@/lib/assemblyEngine";
+import { calculateBathroomAssembly, calculateShowerAssembly, calculateTileAssembly } from "@/lib/bathAssembly";
 import { Prisma } from "@/generated/prisma";
 import { Tier } from "@/generated/prisma";
 import { DEFAULT_MARKUP, getEstimateMarkup } from "@/lib/estimateMarkup";
@@ -53,6 +52,11 @@ const TRADE_CLEAR_MAP: Record<string, string[]> = {
   "deck framing":                 ["Deck Framing"],
   "deck framing accessories":     ["Deck Framing Accessories"],
   "gutters":                      ["Gutters"],
+  // Bathroom fixtures build into each fixture's own tab
+  "bathroom":                     ["Bathroom", "Toilet", "Toilet Assembly", "Vanity", "Vanity Assembly", "Faucet", "Faucet Assembly", "Sink", "Sink Assembly"],
+  "shower":                       ["Shower", "Shower Assembly"],
+  "shower assembly":              ["Shower", "Shower Assembly"],
+  "tile":                         ["Tile", "Tile Accessories"],
 };
 
 async function verifyAccess(estimateId: string, userId: string, isAdmin: boolean) {
@@ -211,6 +215,8 @@ export async function POST(request: Request, context: RouteContext) {
       assemblyItems = calculateFlooringAssembly(measurementData, products);
     } else if (trade === "tile") {
       assemblyItems = calculateTileAssembly(measurementData, products);
+    } else if (trade === "shower" || trade === "shower assembly") {
+      assemblyItems = calculateShowerAssembly(measurementData, products);
     } else if (trade === "bathroom") {
       assemblyItems = calculateBathroomAssembly(measurementData, products);
     } else if (trade === "insulation") {
@@ -378,7 +384,8 @@ export async function DELETE(request: Request, context: RouteContext) {
     if (s.startsWith("wall")) return "Wall Assembly";
     if (s.includes("floor")) return "Flooring";
     if (s.includes("tile")) return "Tile";
-    if (s.includes("vanity") || s.includes("toilet") || s.includes("sink") || s.includes("faucet") || s.includes("shower")) return "Bathroom";
+    if (s.includes("shower")) return "Shower";
+    if (s.includes("vanity") || s.includes("toilet") || s.includes("sink") || s.includes("faucet")) return "Bathroom";
     if (s.includes("window") || s.includes("door")) return "Windows/Doors";
     if (s.includes("insul") && s.includes("accessor")) return "Insulation Accessories";
     if (s.includes("insul")) return "Insulation";

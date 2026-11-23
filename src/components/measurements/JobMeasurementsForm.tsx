@@ -3,6 +3,7 @@
 import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, newRoom, roofArea, roomWallLf, newDeckSection, deckGeometry, DECK_GATE_WIDTH_FT } from "@/lib/jobMeasurements";
 import type { DeckSection } from "@/components/measurements/DeckMeasurements";
 import { GUARD_REQUIRED_ABOVE_IN, GUARD_SHOP_ABOVE_IN, HANDRAIL_AT_RISERS, MAX_RISER_IN } from "@/lib/deckCode";
+import { type ShowerEntry, newShower, showerAreas } from "@/lib/bathShared";
 import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements";
 import SidingMeasurements, { type HoverData } from "@/components/measurements/SidingMeasurements";
 
@@ -110,6 +111,9 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
     set("deckSections", job.deckSections.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
   const deck = deckGeometry(job);
+  function setShower(id: string, patch: Partial<ShowerEntry>) {
+    set("showers", job.showers.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
 
   const area = roofArea(job);
   const siding = sections.has("siding");
@@ -447,6 +451,74 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
               <Num label="Outside Corners" unit="count" value={job.interiorCorners} onChange={(v) => set("interiorCorners", v)} hint="Corner bead, framing" />
             </div>
           )}
+        </div>
+      )}
+
+      {sections.has("bath") && (
+        <div className={cardCls}>
+          <div>
+            <h3 className={headCls}>Bathroom</h3>
+            <p className="text-[11px] text-slate-500 mt-1">Each toilet, sink and shower gets one Plumbing line. Products are picked on the Bathroom and Shower tabs.</p>
+          </div>
+          <div className="flex flex-wrap gap-4">
+            <div className="w-24"><Num label="Toilets" value={job.bathToilets} onChange={(v) => set("bathToilets", v)} /></div>
+            <div className="w-24"><Num label="Sinks" value={job.bathSinks} onChange={(v) => set("bathSinks", v)} hint="vanity or pedestal" /></div>
+          </div>
+          <div className="space-y-3 border-t border-slate-700 pt-4">
+            <p className="text-xs font-medium text-slate-400">Showers <span className="text-slate-500 font-normal">— small = tub/shower up to 36&quot;×60&quot;×72&quot;; anything larger is large</span></p>
+            {job.showers.map((s, idx) => {
+              const { wall, base } = showerAreas(s);
+              return (
+                <div key={s.id} className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[120px]">
+                    <label className={labelCls}>Shower</label>
+                    <input type="text" value={s.label} onChange={(e) => setShower(s.id, { label: e.target.value })} placeholder={`Shower ${idx + 1}`} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Type</label>
+                    <div className="flex gap-1">
+                      {([["small", "Tile small"], ["large", "Tile large"], ["surround", "Surround"]] as const).map(([t, label]) => (
+                        <button key={t} type="button"
+                          onClick={() => setShower(s.id, t === "large" && s.type !== "large" ? { type: t, lengthIn: 60, depthIn: 48, heightIn: 84 } : { type: t })}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                            s.type === t ? "bg-blue-600 border-blue-600 text-white" : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {s.type !== "surround" && (
+                    <>
+                      <div className="w-20"><Num label="Back wall" unit="in" value={s.lengthIn} onChange={(v) => setShower(s.id, { lengthIn: v })} /></div>
+                      <div className="w-20"><Num label="Depth" unit="in" value={s.depthIn} onChange={(v) => setShower(s.id, { depthIn: v })} /></div>
+                      <div className="w-20"><Num label="Tile ht" unit="in" value={s.heightIn} onChange={(v) => setShower(s.id, { heightIn: v })} /></div>
+                      <div className="w-16"><Num label="Nooks" value={s.nooks} onChange={(v) => setShower(s.id, { nooks: v })} /></div>
+                      <div>
+                        <label className={labelCls}>Walls</label>
+                        <div className="flex gap-1">
+                          {([["aqua", "Aqua Defense"], ["kerdi", "Kerdi"]] as const).map(([w, label]) => (
+                            <button key={w} type="button" onClick={() => setShower(s.id, { walls: w })}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                s.walls === w ? "bg-blue-600 border-blue-600 text-white" : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
+                              }`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <p className="w-24 text-right text-sm text-slate-300 pb-2">{Math.round(wall + base)} sqft</p>
+                    </>
+                  )}
+                  <RemoveBtn title="Remove shower" onClick={() => set("showers", job.showers.filter((x) => x.id !== s.id))} />
+                </div>
+              );
+            })}
+            <button onClick={() => set("showers", [...job.showers, newShower()])} className="text-xs text-blue-400 hover:text-blue-300">+ Add Shower</button>
+            {job.showers.some((s) => s.type !== "surround") && (
+              <p className="text-[11px] text-slate-500">Every tiled base gets Mapei Aqua Defense, even with Kerdi walls.</p>
+            )}
+          </div>
         </div>
       )}
 

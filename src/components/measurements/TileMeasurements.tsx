@@ -1,24 +1,29 @@
 "use client";
 
 import { useState } from "react";
+import ProductPick from "./ProductPick";
+import type { PickProduct } from "@/lib/bathProducts";
 
 export interface TileArea {
   id: string;
   label: string;
   length: number;
   width: number;
+  kind?: "floor" | "wall";   // floors get Mapeguard underneath
 }
 
 export interface TileData {
   areas: TileArea[];
   wasteFactor: number;
   groutJoints: "narrow" | "medium" | "wide";
-  includesBackerBoard: boolean;
+  includesBackerBoard: boolean;   // Mapeguard UM 35 under floor tile
+  tileProductId?: string;
 }
 
 interface Props {
   initialData?: Partial<TileData>;
   onChange: (data: TileData) => void;
+  tiles?: PickProduct[];
 }
 
 const inputCls =
@@ -29,18 +34,13 @@ function newArea(): TileArea {
   return { id: String(Date.now() + Math.random()), label: "", length: 0, width: 0 };
 }
 
-const GROUT_COVERAGE: Record<TileData["groutJoints"], number> = {
-  narrow: 80,
-  medium: 50,
-  wide: 35,
-};
-
-export default function TileMeasurements({ initialData, onChange }: Props) {
+export default function TileMeasurements({ initialData, onChange, tiles = [] }: Props) {
   const [data, setData] = useState<TileData>({
     areas: initialData?.areas ?? [newArea()],
     wasteFactor: initialData?.wasteFactor ?? 15,
     groutJoints: initialData?.groutJoints ?? "medium",
-    includesBackerBoard: initialData?.includesBackerBoard ?? false,
+    includesBackerBoard: initialData?.includesBackerBoard ?? true,
+    tileProductId: initialData?.tileProductId ?? "",
   });
 
   function update<K extends keyof TileData>(key: K, value: TileData[K]) {
@@ -73,8 +73,7 @@ export default function TileMeasurements({ initialData, onChange }: Props) {
   const totalSqf = data.areas.reduce((sum, a) => sum + (a.length || 0) * (a.width || 0), 0);
   const adjustedSqf = Math.ceil(totalSqf * (1 + data.wasteFactor / 100));
   const thinsetBags = Math.ceil(adjustedSqf / 50);
-  const groutBags = Math.ceil(adjustedSqf / GROUT_COVERAGE[data.groutJoints]);
-  const backerBoardSqf = data.includesBackerBoard ? adjustedSqf : 0;
+  const groutBags = Math.ceil(totalSqf / 100);
 
   return (
     <div className="space-y-6">
@@ -87,6 +86,7 @@ export default function TileMeasurements({ initialData, onChange }: Props) {
             <thead>
               <tr className="text-left text-xs text-slate-500 border-b border-slate-700">
                 <th className="pb-2 pr-3 font-medium">Area / Room</th>
+                <th className="pb-2 pr-3 font-medium">Floor / Wall</th>
                 <th className="pb-2 pr-3 font-medium">Length (ft)</th>
                 <th className="pb-2 pr-3 font-medium">Width (ft)</th>
                 <th className="pb-2 pr-3 font-medium text-right">Area (sqf)</th>
@@ -106,6 +106,18 @@ export default function TileMeasurements({ initialData, onChange }: Props) {
                         placeholder={`Area ${idx + 1}`}
                         className={inputCls}
                       />
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex gap-1">
+                        {(["floor", "wall"] as const).map((k) => (
+                          <button key={k} type="button" onClick={() => updateArea(area.id, "kind", k)}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border capitalize transition-colors ${
+                              (area.kind ?? "floor") === k ? "bg-blue-600 border-blue-600 text-white" : "bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500"
+                            }`}>
+                            {k}
+                          </button>
+                        ))}
+                      </div>
                     </td>
                     <td className="py-2 pr-3">
                       <input
@@ -178,9 +190,9 @@ export default function TileMeasurements({ initialData, onChange }: Props) {
                 </span>
               </div>
               <div className="flex items-center gap-6 text-xs text-blue-400/80">
-                <span>~{thinsetBags} thinset bags</span>
-                <span>~{groutBags} grout bags ({data.groutJoints} joints)</span>
-                {data.includesBackerBoard && <span>~{backerBoardSqf} sqf backer board</span>}
+                <span>Tiler Labor: {Math.ceil(totalSqf)} sqft @ $3.50</span>
+                <span>~{thinsetBags} Ultraflex bags</span>
+                <span>~{groutBags} grout bags</span>
               </div>
             </div>
           </div>
@@ -208,23 +220,14 @@ export default function TileMeasurements({ initialData, onChange }: Props) {
             />
           </div>
 
-          {/* Grout Joints */}
-          <div>
-            <label className={labelCls}>Grout Joints</label>
-            <select
-              value={data.groutJoints}
-              onChange={(e) => update("groutJoints", e.target.value as TileData["groutJoints"])}
-              className={inputCls}
-            >
-              <option value="narrow">Narrow (1/16&quot;)</option>
-              <option value="medium">Medium (1/8&quot;)</option>
-              <option value="wide">Wide (3/16&quot;+)</option>
-            </select>
+          {/* Tile product */}
+          <div className="col-span-2">
+            <ProductPick label="Tile" value={data.tileProductId} options={tiles} onChange={(v) => update("tileProductId", v)} />
           </div>
 
           {/* Backer Board */}
           <div className="flex flex-col">
-            <label className={labelCls}>Backer Board</label>
+            <label className={labelCls}>Under floor tile</label>
             <button
               type="button"
               onClick={() => update("includesBackerBoard", !data.includesBackerBoard)}
@@ -245,7 +248,7 @@ export default function TileMeasurements({ initialData, onChange }: Props) {
                   </svg>
                 )}
               </div>
-              Include backer board
+              Mapeguard UM 35
             </button>
           </div>
         </div>

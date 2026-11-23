@@ -5,6 +5,7 @@ import type { WallEntry, GableEntry, MeasurementSource } from "@/components/meas
 import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements"
 import type { DeckSection, DeckRailRun } from "@/components/measurements/DeckMeasurements"
 import { postSpacingFt, stairRisersFor } from "@/lib/deckCode"
+import { type ShowerEntry, newShower, showerAreas } from "@/lib/bathShared"
 
 export interface PlaneEntry { id: string; label: string; area: number }
 
@@ -89,15 +90,20 @@ export interface JobMeasurements {
   deckStairRisers: number
   deckStairWidthFt: number
   deckStairWidthIn: number
+  // Bathroom — each plumbed fixture gets a Plumbing line
+  bathToilets: number
+  bathSinks: number          // vanity or pedestal sinks
+  showers: ShowerEntry[]
 }
 
-export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim" | "rooms" | "openings" | "corners" | "deck"
+export type JobSection = "roof" | "edges" | "gutters" | "siding" | "trim" | "rooms" | "openings" | "corners" | "deck" | "bath"
 
 export const LINKED_TABS = new Set([
   "Roofing", "Gutters", "Siding", "Exterior Trim", "Exterior Trim Accessories",
   "Painting", "Drywall", "Drywall Accessories", "Interior Trim", "Interior Trim Accessories",
   "Flooring", "Wall Assembly", "Interior Doors", "Interior Door Assembly",
   "Decking", "Decking Accessories", "Deck Framing", "Deck Framing Accessories",
+  "Bathroom", "Shower",
 ])
 
 export const DECK_TABS = ["Decking", "Decking Accessories", "Deck Framing", "Deck Framing Accessories"]
@@ -144,6 +150,7 @@ export function emptyJob(): JobMeasurements {
     deckSections: [newDeckSection()], deckHeightFt: 0, deckHeightIn: 0,
     deckRailLeft: true, deckRailFront: true, deckRailRight: true, deckGates: 0,
     deckStairs: 0, deckStairRisers: 7, deckStairWidthFt: 3, deckStairWidthIn: 0,
+    bathToilets: 0, bathSinks: 0, showers: [],
   }
 }
 
@@ -164,6 +171,7 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
   const deck = find("Decking") ?? find("Deck") ?? {}
   const frame = find("Deck Framing") ?? {}
   const deckRuns = Array.isArray(deck.deckRailRuns) ? (deck.deckRailRuns as DeckRailRun[]) : []
+  const bath = find("Bathroom") ?? {}
   const it = find("Interior Trim") ?? find("Interior") ?? {}
   const list = <T,>(...sources: unknown[]): T[] => {
     for (const src of sources) if (Array.isArray(src) && src.length > 0) return src as T[]
@@ -220,6 +228,9 @@ function jobFromScopes(saved: Saved[]): JobMeasurements {
     deckGates: deckRuns.filter((r) => r.type === "gate").length,
     deckStairs: n(deck.stairs), deckStairRisers: n(deck.stairRisers) || 7,
     deckStairWidthFt: deck.stairWidthFt === undefined ? 3 : n(deck.stairWidthFt), deckStairWidthIn: n(deck.stairWidthIn),
+    // Older Bathroom tab counts: vanities were the sinks; each old "shower" becomes a small tiled shower
+    bathToilets: n(bath.toilets), bathSinks: n(bath.sinks) || n(bath.vanities),
+    showers: Array.from({ length: n(bath.showers) }, () => newShower()),
   }
 }
 
@@ -251,6 +262,7 @@ export function sectionsForTabs(tabs: string[]): Set<JobSection> {
   if (has("Painting") || has("Drywall Accessories") || has("Wall Assembly") || trim || doors) s.add("openings")
   if (has("Drywall Accessories") || has("Wall Assembly")) s.add("corners")
   if (DECK_TABS.some(has)) s.add("deck")
+  if (has("Bathroom") || has("Shower")) s.add("bath")
   return s
 }
 
@@ -515,6 +527,8 @@ export function deriveForTab(
   if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
     return { doors: job.doors }
   }
+  if (tab === "Bathroom") return { toilets: job.bathToilets, sinks: job.bathSinks }
+  if (tab === "Shower") return { showers: job.showers }
   if (DECK_TABS.includes(tab)) {
     const g = deckGeometry(job, typeof scopeData.beamSize === "string" ? scopeData.beamSize : undefined)
     if (tab === "Decking") {
@@ -617,6 +631,14 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
       } else {
         add(lf(g.alongHouse), "lf ledger & beam"); add(lf(g.depth), "ft joist span")
         add(g.posts, `post(s) @ ${g.postSpacing}'`); add(lf(g.height), "ft high")
+      }
+    } else if (tab === "Bathroom") {
+      add(job.bathToilets, "toilet(s)"); add(job.bathSinks, "sink(s)")
+    } else if (tab === "Shower") {
+      const label = { small: "small tile", large: "large tile", surround: "surround" } as const
+      for (const s of job.showers) {
+        const { wall, base } = showerAreas(s)
+        parts.push(`${s.label || "Shower"}: ${label[s.type]}${s.type === "surround" ? "" : `, ${Math.round(wall + base)} sqft`}${n(s.nooks) > 0 ? `, ${s.nooks} nook(s)` : ""}`)
       }
     } else if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
       add(job.doors.filter((d) => d.type !== "exterior").reduce((s, d) => s + n(d.count), 0), "interior door(s)")

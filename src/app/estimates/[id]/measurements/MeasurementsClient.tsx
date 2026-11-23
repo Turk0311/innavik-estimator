@@ -32,6 +32,8 @@ import WindowsDoorsMeasurements, { type WindowsDoorData } from "@/components/mea
 import FlooringMeasurements, { type FlooringData, type FloorRoom } from "@/components/measurements/FlooringMeasurements";
 import TileMeasurements, { type TileData } from "@/components/measurements/TileMeasurements";
 import BathroomMeasurements, { type BathroomData } from "@/components/measurements/BathroomMeasurements";
+import ShowerMeasurements, { type ShowerData } from "@/components/measurements/ShowerMeasurements";
+import { type BathProductLists, EMPTY_BATH_PRODUCTS } from "@/lib/bathProducts";
 import ExteriorTrimMeasurements, { type ExteriorTrimData } from "@/components/measurements/ExteriorTrimMeasurements";
 
 type MeasurementRecord = {
@@ -50,6 +52,7 @@ interface Props {
   scopes: string[];
   savedMeasurements: MeasurementRecord[];
   deckProducts: { id: string; name: string; cost: number; unit: string; subCategory: string | null }[];
+  bathProducts?: BathProductLists;
   laborAssemblies?: LaborAssemblyPreview[];
 }
 
@@ -77,7 +80,8 @@ function normalizeTrade(scope: string): string {
   if (s.startsWith("wall")) return "Wall Assembly";
   if (s.includes("floor")) return "Flooring";
   if (s.includes("tile")) return "Tile";
-  if (s.includes("vanity") || s.includes("toilet") || s.includes("sink") || s.includes("faucet") || s.includes("shower")) return "Bathroom";
+  if (s.includes("shower")) return "Shower";
+  if (s.includes("vanity") || s.includes("toilet") || s.includes("sink") || s.includes("faucet")) return "Bathroom";
   if (s.includes("window") || s.includes("door")) return "Windows/Doors";
   if (s.includes("insul") && s.includes("accessor")) return "Insulation Accessories";
   if (s.includes("insul")) return "Insulation";
@@ -93,7 +97,7 @@ function savedAs<T>(savedMeasurements: MeasurementRecord[], tradeType: string): 
   return found?.data as T | undefined;
 }
 
-export default function MeasurementsClient({ estimateId, scopes, savedMeasurements, deckProducts, laborAssemblies = [] }: Props) {
+export default function MeasurementsClient({ estimateId, scopes, savedMeasurements, deckProducts, bathProducts = EMPTY_BATH_PRODUCTS, laborAssemblies = [] }: Props) {
   const router = useRouter();
 
   const [activeScopes, setActiveScopes] = useState<string[]>(scopes);
@@ -203,6 +207,9 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   const [bathroomData, setBathroomData] = useState<BathroomData>(
     () => savedAs<BathroomData>(savedMeasurements, "Bathroom") ?? {} as BathroomData
   );
+  const [showerData, setShowerData] = useState<ShowerData>(
+    () => savedAs<ShowerData>(savedMeasurements, "Shower") ?? {} as ShowerData
+  );
   const [insulationData, setInsulationData] = useState<InsulationData>(
     () => savedAs<InsulationData>(savedMeasurements, "Insulation") ?? {} as InsulationData
   );
@@ -305,6 +312,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       case "Flooring": return flooringData as unknown as Record<string, unknown>;
       case "Tile": return tileData as unknown as Record<string, unknown>;
       case "Bathroom": return bathroomData as unknown as Record<string, unknown>;
+      case "Shower": return showerData as unknown as Record<string, unknown>;
       case "Insulation": return insulationData as unknown as Record<string, unknown>;
       case "Insulation Accessories": return insulAccData as unknown as Record<string, unknown>;
       case "Drywall": return drywallData as unknown as Record<string, unknown>;
@@ -910,10 +918,14 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           />
         )}
         {activeTab === "Tile" && (
-          <TileMeasurements initialData={tileData} onChange={setTileData} />
+          <TileMeasurements initialData={tileData} onChange={setTileData} tiles={bathProducts.tiles} />
         )}
         {activeTab === "Bathroom" && (
-          <BathroomMeasurements initialData={bathroomData} onChange={setBathroomData} />
+          <BathroomMeasurements initialData={bathroomData} onChange={setBathroomData} products={bathProducts}
+            counts={{ toilets: job.bathToilets, sinks: job.bathSinks }} />
+        )}
+        {activeTab === "Shower" && (
+          <ShowerMeasurements initialData={showerData} onChange={setShowerData} products={bathProducts} showers={job.showers} />
         )}
         {activeTab === "Windows/Doors" && (
           <WindowsDoorsMeasurements initialData={windowsDoorData} onChange={setWindowsDoorData} />

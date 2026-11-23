@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import MeasurementsClient from "./MeasurementsClient";
+import { sortBathProducts } from "@/lib/bathProducts";
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -74,6 +75,12 @@ export default async function MeasurementsPage({ params }: PageProps) {
     select: { id: true, name: true, cost: true, unit: true, subCategory: true },
     orderBy: [{ subCategory: "asc" }, { name: "asc" }],
   });
+
+  // Products the bathroom, shower and tile tabs pick from
+  const bathProducts = sortBathProducts(await prisma.product.findMany({
+    where: { active: true, category: { in: ["Bath", "Toilet", "Vanity", "Sink", "Shower", "Shower Assembly", "Tile"] } },
+    select: { id: true, name: true, cost: true, category: true },
+  }));
 
   // Serialize measurements data for client
   const savedMeasurements = estimate.measurements.map((m) => ({
@@ -163,6 +170,7 @@ export default async function MeasurementsPage({ params }: PageProps) {
             scopes={scopes}
             savedMeasurements={savedMeasurements}
             deckProducts={deckProducts}
+            bathProducts={bathProducts}
             laborAssemblies={laborAssemblies}
           />
         )}

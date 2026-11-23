@@ -21,7 +21,7 @@ export type AssemblyItem = {
   supplier?: string | null
 }
 
-type Product = {
+export type Product = {
   id: string
   name: string
   cost: number
@@ -188,7 +188,7 @@ const DEFAULT_COSTS: Record<string, number> = {
   exteriorTrimLabor: 2.50,  // per lf installed
 }
 
-const DEFAULT_MARKUP = 30
+export const DEFAULT_MARKUP = 30
 
 // ---------------------------------------------------------------------------
 // Helper: find a product by keyword in name or subCategory
@@ -225,7 +225,7 @@ const CARPENTER_FALLBACK_RATES: Record<string, number> = {
 }
 
 // Interior jobs (walls, insulation, doors, trim): Carpenter + Finish Apprentice
-function interiorCrew(m: MeasurementData) {
+export function interiorCrew(m: MeasurementData) {
   return [
     { name: 'Carpenter', entered: m.finishCarpenterHours },
     { name: 'Finish Apprentice Carpenter', entered: m.apprenticeHours },
@@ -242,7 +242,7 @@ function findCrewRate(products: Product[], name: string): Product | undefined {
 
 // One line per crew member at the Labor page rate. Each member works the suggested hours
 // unless hours were entered for them.
-function pushCarpentry(
+export function pushCarpentry(
   items: AssemblyItem[],
   products: Product[],
   category: string,
@@ -310,7 +310,7 @@ function parseCartonSqft(name: string): number {
   return 0
 }
 
-function num(v: unknown, fallback = 0): number {
+export function num(v: unknown, fallback = 0): number {
   const n = Number(v)
   return isNaN(n) ? fallback : n
 }
@@ -4616,249 +4616,12 @@ export function calculateFlooringAssembly(
 // ---------------------------------------------------------------------------
 // Tile Assembly
 // ---------------------------------------------------------------------------
-export function calculateTileAssembly(
-  measurements: MeasurementData,
-  products: Product[]
-): AssemblyItem[] {
-  const areas = measurements.areas
-  let totalSqf = 0
-
-  if (Array.isArray(areas) && areas.length > 0) {
-    totalSqf = areas.reduce((sum: number, a: unknown) => {
-      const area = a as { length?: unknown; width?: unknown }
-      return sum + num(area.length) * num(area.width)
-    }, 0)
-  }
-
-  if (totalSqf <= 0) return []
-
-  const wastePct = num(measurements.wasteFactor, 15)
-  const groutJoints = String(measurements.groutJoints ?? 'medium')
-  const includesBackerBoard = Boolean(measurements.includesBackerBoard)
-
-  const adjustedSqf = ceil(totalSqf * (1 + wastePct / 100))
-  const thinsetBags = ceil(adjustedSqf / 50)
-  const groutCoverage = groutJoints === 'narrow' ? 80 : groutJoints === 'wide' ? 35 : 50
-  const groutBags = ceil(adjustedSqf / groutCoverage)
-
-  const items: AssemblyItem[] = []
-
-  // 1. Tile material
-  const tileProduct = findProduct(products, 'tile', 'ceramic', 'porcelain')
-  items.push({
-    description: tileProduct?.name ?? 'Tile material',
-    quantity: adjustedSqf,
-    unit: 'sqf',
-    cost: tileProduct?.cost ?? 3.50,
-    markup: DEFAULT_MARKUP,
-    tier: tileProduct?.tier ?? 'GOOD',
-    category: 'Tile',
-    isLabor: false,
-    productId: tileProduct?.id,
-  })
-
-  // 2. Thinset mortar
-  const thinsetProduct = findProduct(products, 'thinset', 'thin-set', 'mortar', 'tile mortar')
-  items.push({
-    description: thinsetProduct?.name ?? 'Thinset mortar',
-    quantity: thinsetBags,
-    unit: 'bag',
-    cost: thinsetProduct?.cost ?? 22,
-    markup: DEFAULT_MARKUP,
-    tier: thinsetProduct?.tier ?? 'GOOD',
-    category: 'Tile',
-    isLabor: false,
-    productId: thinsetProduct?.id,
-  })
-
-  // 3. Grout
-  const groutProduct = findProduct(products, 'grout', 'tile grout', 'unsanded grout', 'sanded grout')
-  items.push({
-    description: groutProduct?.name ?? `Grout (${groutJoints} joints)`,
-    quantity: groutBags,
-    unit: 'bag',
-    cost: groutProduct?.cost ?? 18,
-    markup: DEFAULT_MARKUP,
-    tier: groutProduct?.tier ?? 'GOOD',
-    category: 'Tile',
-    isLabor: false,
-    productId: groutProduct?.id,
-  })
-
-  // 4. Backer board
-  if (includesBackerBoard) {
-    const backerProduct = findProduct(products, 'backer board', 'cement board', 'hardiebacker', 'durock', 'wonderboard')
-    items.push({
-      description: backerProduct?.name ?? 'Cement backer board',
-      quantity: adjustedSqf,
-      unit: 'sqf',
-      cost: backerProduct?.cost ?? 0.85,
-      markup: DEFAULT_MARKUP,
-      tier: backerProduct?.tier ?? 'GOOD',
-      category: 'Tile',
-      isLabor: false,
-      productId: backerProduct?.id,
-    })
-  }
-
-  // 5. Tile installation labor
-  const laborProduct = findProduct(products, 'tile labor', 'tile installation', 'tile setter', 'tile install')
-  items.push({
-    description: laborProduct?.name ?? 'Tile installation labor',
-    quantity: adjustedSqf,
-    unit: 'sqf',
-    cost: laborProduct?.cost ?? 5.00,
-    markup: DEFAULT_MARKUP,
-    tier: laborProduct?.tier ?? 'GOOD',
-    category: 'Tile',
-    isLabor: true,
-    productId: laborProduct?.id,
-  })
-
-  return items
-}
+// calculateTileAssembly moved to lib/bathAssembly.ts
 
 // ---------------------------------------------------------------------------
 // Bathroom Assembly
 // ---------------------------------------------------------------------------
-export function calculateBathroomAssembly(
-  measurements: MeasurementData,
-  products: Product[]
-): AssemblyItem[] {
-  const vanities  = num(measurements.vanities)
-  const toilets   = num(measurements.toilets)
-  const showers   = num(measurements.showers)
-  const mirrors   = num(measurements.mirrors)
-  const towelBars = num(measurements.towelBars)
-  const tpHolders = num(measurements.tpHolders)
-  const faucets   = num(measurements.faucets)
-
-  const items: AssemblyItem[] = []
-
-  if (vanities > 0) {
-    const product = findProduct(products, 'vanity')
-    items.push({
-      description: product?.name ?? 'Vanity installation',
-      quantity: vanities,
-      unit: 'ea',
-      cost: product?.cost ?? 180,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  if (toilets > 0) {
-    const product = findProduct(products, 'toilet')
-    items.push({
-      description: product?.name ?? 'Toilet installation',
-      quantity: toilets,
-      unit: 'ea',
-      cost: product?.cost ?? 320,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  if (showers > 0) {
-    const product = findProduct(products, 'shower', 'tub', 'shower unit')
-    items.push({
-      description: product?.name ?? 'Shower / tub installation',
-      quantity: showers,
-      unit: 'ea',
-      cost: product?.cost ?? 450,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  if (faucets > 0) {
-    const product = findProduct(products, 'faucet', 'bathroom faucet')
-    items.push({
-      description: product?.name ?? 'Faucet installation',
-      quantity: faucets,
-      unit: 'ea',
-      cost: product?.cost ?? 95,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  if (mirrors > 0) {
-    const product = findProduct(products, 'mirror', 'bathroom mirror')
-    items.push({
-      description: product?.name ?? 'Mirror installation',
-      quantity: mirrors,
-      unit: 'ea',
-      cost: product?.cost ?? 55,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  if (towelBars > 0) {
-    const product = findProduct(products, 'towel bar', 'towel ring', 'towel rack')
-    items.push({
-      description: product?.name ?? 'Towel bars',
-      quantity: towelBars,
-      unit: 'ea',
-      cost: product?.cost ?? 32,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  if (tpHolders > 0) {
-    const product = findProduct(products, 'toilet paper holder', 'tp holder', 'paper holder')
-    items.push({
-      description: product?.name ?? 'Toilet paper holders',
-      quantity: tpHolders,
-      unit: 'ea',
-      cost: product?.cost ?? 22,
-      markup: DEFAULT_MARKUP,
-      tier: product?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: false,
-      productId: product?.id,
-    })
-  }
-
-  // Bathroom installation labor — ~2 hr per fixture set
-  const fixtureCount = vanities + toilets + showers + faucets
-  if (fixtureCount > 0) {
-    const laborProduct = findProduct(products, 'bathroom labor', 'plumbing labor', 'bath install')
-    items.push({
-      description: laborProduct?.name ?? 'Bathroom fixture installation labor',
-      quantity: ceil(fixtureCount * 2),
-      unit: 'hr',
-      cost: laborProduct?.cost ?? 95,
-      markup: DEFAULT_MARKUP,
-      tier: laborProduct?.tier ?? 'GOOD',
-      category: 'Bathroom',
-      isLabor: true,
-      productId: laborProduct?.id,
-    })
-  }
-
-  return items
-}
+// calculateBathroomAssembly moved to lib/bathAssembly.ts
 
 // ---------------------------------------------------------------------------
 // Interior Doors + Interior Door Assembly

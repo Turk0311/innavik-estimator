@@ -52,6 +52,7 @@ export const SCOPE_CATEGORIES: ScopeCategory[] = [
       { name: "Toilet", accessory: "Toilet Assembly" },
       { name: "Sink", accessory: "Sink Assembly" },
       { name: "Faucet", accessory: "Faucet Assembly" },
+      { name: "Shower", accessory: "Shower Assembly" },
       { name: "Tile", accessory: "Tile Accessories" },
     ],
   },

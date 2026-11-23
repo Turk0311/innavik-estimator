@@ -294,6 +294,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
         autoLagScrews: framingAutoLagScrews,
         autoCarriageBolts: framingAutoCarriageBolts,
         joistSize: deckFramingData.joistSize,
+        beamSize: deckFramingData.beamSize,   // posts follow the beam's allowed span
       };
       case "Gutters": return gutterData as unknown as Record<string, unknown>;
       // Door Assembly shares the Interior Doors choices
@@ -410,7 +411,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
 
   // Deck tabs take sections, stairs, railing and framing sizes from the Measurements tab
   const deckView = { ...deckData, ...(deriveForTab("Decking", job) ?? {}) } as DeckData;
-  const framingView = { ...deckFramingData, ...(deriveForTab("Deck Framing", job) ?? {}) } as DeckFramingData;
+  const framingView = { ...deckFramingData, ...(deriveForTab("Deck Framing", job, deckFramingData as unknown as Record<string, unknown>) ?? {}) } as DeckFramingData;
 
   const deckTotalSqft = Math.round(
     (deckView.sections ?? []).reduce((sum, s) => {
@@ -787,7 +788,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <div className="min-w-0">
             <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-1">From Measurements</p>
             <p className="text-sm text-slate-300">
-              {summaryForTab(activeTab, job, framing).join(" · ") || "Nothing entered yet"}
+              {summaryForTab(activeTab, job, framing, deckFramingData.beamSize).join(" · ") || "Nothing entered yet"}
             </p>
           </div>
           <button
@@ -874,7 +875,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <DeckingAccessoriesMeasurements key={deckAccKey} initialData={deckAccData} onChange={setDeckAccData} deckSections={deckView.sections} autoDeckScrewsLbs={deckAutoScrewLbs} boardFastenerSuggestions={boardFastenerSuggestions} linkedValues={deriveForTab("Decking Accessories", job) as Partial<DeckingAccessoriesData>} />
         )}
         {activeTab === "Deck Framing" && (
-          <DeckFramingMeasurements key={deckFramingKey} initialData={deckFramingData} onChange={setDeckFramingData} linkedValues={deriveForTab("Deck Framing", job) as Partial<DeckFramingData>} />
+          <DeckFramingMeasurements key={deckFramingKey} initialData={deckFramingData} onChange={setDeckFramingData} linkedValues={deriveForTab("Deck Framing", job, deckFramingData as unknown as Record<string, unknown>) as Partial<DeckFramingData>} />
         )}
         {activeTab === "Deck Framing Accessories" && (
           <DeckFramingAccessoriesMeasurements

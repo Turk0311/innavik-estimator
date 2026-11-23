@@ -1,7 +1,8 @@
 "use client";
 
-import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, newRoom, roofArea, roomWallLf, newDeckSection, deckGeometry, DECK_POST_SPACING_FT, DECK_GATE_WIDTH_FT } from "@/lib/jobMeasurements";
+import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, newRoom, roofArea, roomWallLf, newDeckSection, deckGeometry, DECK_GATE_WIDTH_FT } from "@/lib/jobMeasurements";
 import type { DeckSection } from "@/components/measurements/DeckMeasurements";
+import { GUARD_REQUIRED_ABOVE_IN, GUARD_SHOP_ABOVE_IN, HANDRAIL_AT_RISERS, MAX_RISER_IN } from "@/lib/deckCode";
 import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements";
 import SidingMeasurements, { type HoverData } from "@/components/measurements/SidingMeasurements";
 
@@ -477,7 +478,16 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
           <div className="flex flex-wrap items-end gap-4 border-t border-slate-700 pt-4">
             <FtIn label="Deck height" ft={job.deckHeightFt} inches={job.deckHeightIn} onChange={(deckHeightFt, deckHeightIn) => onChange({ ...job, deckHeightFt, deckHeightIn })} />
             <div className="w-24"><Num label="Stair flights" value={job.deckStairs} onChange={(v) => set("deckStairs", v)} /></div>
-            <div className="w-24"><Num label="Risers / flight" value={job.deckStairRisers} onChange={(v) => set("deckStairRisers", v)} placeholder="7" /></div>
+            {deck.height > 0 ? (
+              <div className="w-28">
+                <label className={labelCls}>Risers / flight</label>
+                <p className="py-1.5 text-sm text-white font-semibold">{deck.risers}
+                  <span className="text-[10px] font-normal text-slate-500 ml-1">from height · {MAX_RISER_IN}&quot; max</span>
+                </p>
+              </div>
+            ) : (
+              <div className="w-24"><Num label="Risers / flight" value={job.deckStairRisers} onChange={(v) => set("deckStairRisers", v)} placeholder="7" /></div>
+            )}
             <FtIn label="Stair width" ft={job.deckStairWidthFt} inches={job.deckStairWidthIn} onChange={(deckStairWidthFt, deckStairWidthIn) => onChange({ ...job, deckStairWidthFt, deckStairWidthIn })} />
           </div>
 
@@ -502,11 +512,35 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
             <p className="text-xs text-slate-400">
               <span className="font-semibold text-white">{Math.round(deck.sqft)} sqft</span>
               {" · "}{Math.round(deck.alongHouse * 10) / 10} lf ledger & beam
-              {" · "}{deck.posts} posts @ {DECK_POST_SPACING_FT}&apos;
               {" · "}{Math.round(deck.railLf * 10) / 10} lf railing
               {deck.stairGap > 0 && <> (less {Math.round(deck.stairGap * 10) / 10}&apos; stair opening)</>}
             </p>
           )}
+
+          {/* Code notes — 2021 IRC */}
+          {(() => {
+            const notes: { warn: boolean; text: string }[] = [];
+            const heightIn = deck.height * 12;
+            const unrailed = ([["deckRailLeft", "left"], ["deckRailFront", "front"], ["deckRailRight", "right"]] as const)
+              .filter(([k]) => !job[k]).map(([, label]) => label);
+            if (heightIn > GUARD_SHOP_ABOVE_IN && unrailed.length > 0) {
+              const codeToo = heightIn > GUARD_REQUIRED_ABOVE_IN ? ` — over ${GUARD_REQUIRED_ABOVE_IN}" code requires it too (IRC R312.1.1)` : "";
+              notes.push({ warn: true, text: `Deck is over ${GUARD_SHOP_ABOVE_IN}" high — Innavik rails every open side${codeToo}. No railing on: ${unrailed.join(", ")}.` });
+            } else if (deck.height > 0 && heightIn <= GUARD_SHOP_ABOVE_IN && deck.railLf > 0) {
+              notes.push({ warn: false, text: `Deck is ${GUARD_SHOP_ABOVE_IN}" or less — railing isn't required, included by choice.` });
+            }
+            if (job.deckStairs > 0 && deck.risers >= HANDRAIL_AT_RISERS) {
+              notes.push({ warn: false, text: `${deck.risers} risers — stair handrail required on at least one side (IRC R311.7.8); stair rail is included.` });
+            }
+            if (notes.length === 0) return null;
+            return (
+              <div className="space-y-1">
+                {notes.map((n) => (
+                  <p key={n.text} className={`text-xs ${n.warn ? "text-amber-400" : "text-slate-500"}`}>{n.warn ? "⚠ " : ""}{n.text}</p>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

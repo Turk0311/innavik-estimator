@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DECK_CODE_BASIS, maxJoistSpan, minJoistSize, maxBeamSpan, postSpacingFt, fmtFtIn, MAX_POST_SPACING_FT, FROST_DEPTH_FT } from "@/lib/deckCode";
 import CarpentryHours from "./CarpentryHours";
 
 export interface DeckFramingData {
@@ -185,14 +186,46 @@ export default function DeckFramingMeasurements({ initialData, onChange, linkedV
 
   // Concrete auto-calc: volume of cylinder per pier (ft³), 60lb bag ≈ 0.45 ft³
   const pierRadiusFt   = (data.tubeFormDiamIn / 2) / 12;
-  const pierVolFt3     = Math.PI * pierRadiusFt * pierRadiusFt * (data.tubeFormDepthFt || 0);
+  const pierVolFt3     = Math.PI * pierRadiusFt * pierRadiusFt * (data.tubeFormDepthFt || FROST_DEPTH_FT);
   const totalVolFt3    = (data.pierCount || 0) * pierVolFt3;
   const autoConcreteBags = data.pierType === "concrete" && totalVolFt3 > 0
     ? Math.ceil(totalVolFt3 / 0.45) : 0;
   const effectiveBags  = data.concreteBags60lb > 0 ? data.concreteBags60lb : autoConcreteBags;
 
+  // Code checks — IRC Table R507.6 (joists) and R507.5(2) (doubled beam)
+  const joistMax = maxJoistSpan(data.joistSize, data.joistSpacingIn);
+  const joistOk = joistSpan <= 0 || (joistMax !== null && joistMax >= joistSpan);
+  const joistNeeded = joistSpan > 0 ? minJoistSize(joistSpan, data.joistSpacingIn) : null;
+  const beamMax = joistSpan > 0 ? maxBeamSpan(data.beamSize, joistSpan) : null;
+  const postSpacing = joistSpan > 0 ? postSpacingFt(data.beamSize, joistSpan) : MAX_POST_SPACING_FT;
+
   return (
     <div className="space-y-6">
+
+      {joistSpan > 0 && (
+        <div className={`rounded-xl border px-4 py-3 space-y-1 text-xs ${joistOk && beamMax ? "border-slate-700 bg-slate-800/60" : "border-amber-700/60 bg-amber-950/20"}`}>
+          <p className="font-semibold text-slate-400 uppercase tracking-widest">Code check <span className="normal-case font-normal text-slate-500">· {DECK_CODE_BASIS}</span></p>
+          {joistOk ? (
+            <p className="text-slate-300">
+              Joists: {data.joistSize} @ {data.joistSpacingIn}&quot; spans up to {fmtFtIn(joistMax!)} — deck needs {fmtFtIn(joistSpan)} ✓
+              {joistNeeded && joistNeeded !== data.joistSize && <span className="text-slate-500"> (a {joistNeeded} would also work)</span>}
+            </p>
+          ) : (
+            <p className="text-amber-400">
+              ⚠ Joists: {data.joistSize} @ {data.joistSpacingIn}&quot; spans only {joistMax ? fmtFtIn(joistMax) : "—"}; this deck needs {fmtFtIn(joistSpan)} (IRC Table R507.6).{" "}
+              {joistNeeded ? <>Use {joistNeeded} or closer spacing.</> : <>No joist size spans this — add a mid beam.</>}
+            </p>
+          )}
+          {beamMax ? (
+            <p className="text-slate-300">
+              Beam: doubled {data.beamSize} can span {fmtFtIn(beamMax)} between posts → posts every {postSpacing}&apos;
+              {postSpacing >= MAX_POST_SPACING_FT && beamMax > MAX_POST_SPACING_FT && <span className="text-slate-500"> (shop max {MAX_POST_SPACING_FT}&apos;)</span>}
+            </p>
+          ) : (
+            <p className="text-amber-400">⚠ Beam: joists over {fmtFtIn(18 / 0.66)} are beyond IRC Table R507.5(2) — needs a mid beam or engineering.</p>
+          )}
+        </div>
+      )}
 
       {/* Ledger */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
@@ -337,10 +370,10 @@ export default function DeckFramingMeasurements({ initialData, onChange, linkedV
                   </div>
                   <NumField
                     label="Depth"
-                    unit="ft"
+                    unit="ft · below frost"
                     value={data.tubeFormDepthFt}
                     onChange={(v) => update("tubeFormDepthFt", v)}
-                    placeholder="4"
+                    placeholder={String(FROST_DEPTH_FT)}
                   />
                 </>
               )}

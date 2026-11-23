@@ -1,5 +1,6 @@
 import { minMarkupFor } from "@/lib/pricing"
 import { boardFastenerPlan, CONCEALOC_DEFAULT_PRICES } from "@/lib/deckFasteners"
+import { FROST_DEPTH_FT, holdDownsFor } from "@/lib/deckCode"
 // Assembly calculation engine
 // Takes raw field measurements and returns a list of pre-calculated estimate items
 
@@ -3747,7 +3748,8 @@ export function calculateDeckFramingAssembly(
   const pierType    = String(measurements.pierType ?? 'none')
   const pierCount   = num(measurements.pierCount)
   const tubeFormDiamIn  = num(measurements.tubeFormDiamIn)  || 10
-  const tubeFormDepthFt = num(measurements.tubeFormDepthFt)
+  // Footings go below frost when the deck is attached to the house (IRC R507.3.3)
+  const tubeFormDepthFt = num(measurements.tubeFormDepthFt) || FROST_DEPTH_FT
   const manualBags  = num(measurements.concreteBags60lb)
 
   if (pierType === 'concrete' && pierCount > 0) {
@@ -3865,6 +3867,24 @@ export function calculateDeckFramingAccessoriesAssembly(
   const lagScrews       = pick(measurements.lagScrews, measurements.autoLagScrews)
   const structScrews    = num(measurements.structuralScrewsLbs)
   const carrageBolts    = pick(measurements.carrageBolts, measurements.autoCarriageBolts)
+
+  // Lateral hold-downs every 3' along the ledger (Innavik; code minimum is 2 per deck, IRC R507.9.2)
+  const ledgerLf = num(measurements.ledgerFt) + num(measurements.ledgerIn) / 12
+  if (ledgerLf > 0) {
+    const tie = products.find((p) => /deck tension tie/i.test(p.name) && !/kit/i.test(p.name))
+      ?? findProduct(products, 'hold down', 'holdown', 'tension tie')
+    items.push({
+      description: tie ? `${tie.name} (lateral hold-down)` : 'Deck lateral hold-down, 1,500 lb (IRC R507.9.2)',
+      quantity: holdDownsFor(ledgerLf),
+      unit: 'ea',
+      cost: tie?.cost ?? 25,
+      markup: DEFAULT_MARKUP,
+      tier: tie?.tier ?? 'GOOD',
+      category: 'Deck Framing Accessories',
+      isLabor: false,
+      productId: tie?.id,
+    })
+  }
 
   if (joistHangers > 0) {
     // Match the joist depth to the hanger's range — '2"x8"-10" Joist Hanger' fits 2x8 and 2x10

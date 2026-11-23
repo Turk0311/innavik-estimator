@@ -4,6 +4,7 @@
 import type { WallEntry, GableEntry, MeasurementSource } from "@/components/measurements/SidingMeasurements"
 import type { WallDoorEntry, WallWindowEntry } from "@/components/measurements/WallAssemblyMeasurements"
 import type { DeckSection, DeckRailRun } from "@/components/measurements/DeckMeasurements"
+import { postSpacingFt, stairRisersFor } from "@/lib/deckCode"
 
 export interface PlaneEntry { id: string; label: string; area: number }
 
@@ -261,7 +262,8 @@ const splitFt = (ft: number) => {
   return inches === 12 ? { ft: whole + 1, inches: 0 } : { ft: whole, inches }
 }
 
-export function deckGeometry(job: JobMeasurements) {
+// beamSize comes from the Deck Framing tab; it sets how far apart the posts can go (IRC Table R507.5(2))
+export function deckGeometry(job: JobMeasurements, beamSize = "2x10") {
   const sections = job.deckSections.filter((s) => ftIn(s.lengthFt, s.lengthIn) > 0 && ftIn(s.widthFt, s.widthIn) > 0)
   const alongHouse = sections.reduce((t, s) => t + ftIn(s.lengthFt, s.lengthIn), 0)
   const depth = sections.reduce((m, s) => Math.max(m, ftIn(s.widthFt, s.widthIn)), 0)
@@ -270,8 +272,12 @@ export function deckGeometry(job: JobMeasurements) {
   const gateLf = job.deckGates * DECK_GATE_WIDTH_FT
   const frontRail = Math.max(0, alongHouse - stairGap - gateLf)
   const railLf = (job.deckRailLeft ? depth : 0) + (job.deckRailFront ? frontRail : 0) + (job.deckRailRight ? depth : 0) + gateLf
-  const posts = alongHouse > 0 ? Math.ceil(alongHouse / DECK_POST_SPACING_FT) + 1 : 0
-  return { sections, alongHouse, depth, sqft, stairGap, frontRail, gateLf, railLf, posts, height: ftIn(job.deckHeightFt, job.deckHeightIn) }
+  const postSpacing = postSpacingFt(beamSize, depth)
+  const posts = alongHouse > 0 ? Math.ceil(alongHouse / postSpacing) + 1 : 0
+  const height = ftIn(job.deckHeightFt, job.deckHeightIn)
+  // Risers come from the deck height (7¾" max, IRC R311.7.5.1) once the height is entered
+  const risers = height > 0 ? stairRisersFor(height) : job.deckStairRisers
+  return { sections, alongHouse, depth, sqft, stairGap, frontRail, gateLf, railLf, posts, postSpacing, height, risers }
 }
 
 // Railing runs: no rail on the house side; left, front (less the stair opening and gates) and right as picked
@@ -510,14 +516,14 @@ export function deriveForTab(
     return { doors: job.doors }
   }
   if (DECK_TABS.includes(tab)) {
-    const g = deckGeometry(job)
+    const g = deckGeometry(job, typeof scopeData.beamSize === "string" ? scopeData.beamSize : undefined)
     if (tab === "Decking") {
       const gap = splitFt(g.stairGap)
       return {
         sections: g.sections,
         deckRailRuns: deckRailRuns(job, g),
         stairRailRuns: [],   // the build works stair rail out from the stairs
-        stairs: job.deckStairs, stairRisers: job.deckStairRisers,
+        stairs: job.deckStairs, stairRisers: g.risers,
         stairWidthFt: job.deckStairWidthFt, stairWidthIn: job.deckStairWidthIn,
         stairGapFt: gap.ft, stairGapIn: gap.inches,
       }
@@ -547,7 +553,7 @@ const PITCH_LABELS: Record<string, string> = {
 }
 
 // Short "what this scope will use" lines for the confirm banner
-export function summaryForTab(tab: string, job: JobMeasurements, framing?: FramingSource): string[] {
+export function summaryForTab(tab: string, job: JobMeasurements, framing?: FramingSource, deckBeamSize?: string): string[] {
   const parts: string[] = []
   const add = (v: number, label: string) => { if (v > 0) parts.push(`${v.toLocaleString()} ${label}`) }
   if (tab === "Roofing") {
@@ -601,16 +607,16 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
     } else if (tab === "Wall Assembly") {
       add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
     } else if (DECK_TABS.includes(tab)) {
-      const g = deckGeometry(job)
+      const g = deckGeometry(job, deckBeamSize)
       const lf = (v: number) => Math.round(v * 10) / 10
       if (tab === "Decking") {
         add(Math.round(g.sqft), "sqft deck"); add(lf(g.railLf), "lf railing")
-        add(job.deckStairs, `stair flight(s) × ${job.deckStairRisers} risers`); add(job.deckGates, "gate(s)")
+        add(job.deckStairs, `stair flight(s) × ${g.risers} risers`); add(job.deckGates, "gate(s)")
       } else if (tab === "Decking Accessories") {
         add(lf(g.alongHouse + g.depth * 2), "lf fascia"); add(Math.round(g.sqft), "sqft deck")
       } else {
         add(lf(g.alongHouse), "lf ledger & beam"); add(lf(g.depth), "ft joist span")
-        add(g.posts, `post(s) @ ${DECK_POST_SPACING_FT}'`); add(lf(g.height), "ft high")
+        add(g.posts, `post(s) @ ${g.postSpacing}'`); add(lf(g.height), "ft high")
       }
     } else if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
       add(job.doors.filter((d) => d.type !== "exterior").reduce((s, d) => s + n(d.count), 0), "interior door(s)")

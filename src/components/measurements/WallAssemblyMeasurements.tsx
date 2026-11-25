@@ -77,6 +77,8 @@ interface Props {
   onChange: (data: WallAssemblyData) => void;
   // Doors, windows and corners come from the Measurements tab
   linked?: boolean;
+  // No walls of its own: frame the Measurements-tab (siding) walls and their openings
+  exterior?: { walls: WallSection[]; doors: WallDoorEntry[]; windows: WallWindowEntry[]; corners: number };
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -240,8 +242,8 @@ function PresetBtn({ label, onClick }: { label: string; onClick: () => void }) {
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function WallAssemblyMeasurements({ initialData, onChange, linked = false }: Props) {
-  const [data, setData] = useState<WallAssemblyData>({
+export default function WallAssemblyMeasurements({ initialData, onChange, linked = false, exterior }: Props) {
+  const [own, setData] = useState<WallAssemblyData>({
     walls:           initialData?.walls           ?? [newWall()],
     closets:         initialData?.closets         ?? [],
     doors:           initialData?.doors           ?? [],
@@ -263,10 +265,13 @@ export default function WallAssemblyMeasurements({ initialData, onChange, linked
 
   // Emit initial state on mount so the parent's wallData is always current,
   // even when the user views the form without making any edits.
-  useEffect(() => { onChange(data); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onChange(own); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Exterior framing shows the Measurements-tab walls and openings; edits here only touch this tab's options
+  const data: WallAssemblyData = exterior ? { ...own, ...exterior } : own;
 
   function set<K extends keyof WallAssemblyData>(key: K, value: WallAssemblyData[K]) {
-    const next = { ...data, [key]: value };
+    const next = { ...own, [key]: value };
     setData(next);
     onChange(next);
   }
@@ -346,8 +351,25 @@ export default function WallAssemblyMeasurements({ initialData, onChange, linked
   return (
     <div className="space-y-6">
 
+      {exterior && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-2">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Exterior Walls <span className="normal-case font-normal text-slate-500">— from the Measurements tab</span></h3>
+          {exterior.walls.map((w) => (
+            <p key={w.id} className="text-sm text-slate-300">
+              {w.label || "Wall"}: <span className="text-white font-medium">{w.length}&apos; × {w.height}&apos;</span>
+            </p>
+          ))}
+          {[...exterior.doors, ...exterior.windows].map((o) => (
+            <p key={o.id} className="text-xs text-slate-400">
+              Opening: {o.label || "—"} {o.widthFt}&apos;{o.widthIn ? `${o.widthIn}"` : ""} × {o.heightFt}&apos;{o.heightIn ? `${o.heightIn}"` : ""}{(o.count ?? 1) > 1 ? ` × ${o.count}` : ""}
+            </p>
+          ))}
+          <p className="text-xs text-slate-500">Edit the walls, doors and windows on the Measurements tab.</p>
+        </div>
+      )}
+
       {/* ── Wall Sections ── */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+      <div className={`bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4 ${exterior ? "hidden" : ""}`}>
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Wall Sections</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

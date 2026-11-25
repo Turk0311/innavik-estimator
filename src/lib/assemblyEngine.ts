@@ -4091,8 +4091,9 @@ export function calculateWallAssembly(
   const studAcc = new Map<number, number>()     // stud board length → count
   const bpAcc   = new Map<number, number>()     // bottom plate board length → boards
   const tpAcc   = new Map<number, number>()     // top plate board length → boards
-  // Header: beam depth (in) → count (each count = 2 boards, doubled header)
-  const hdrAcc  = new Map<number, number>()
+  // Header: "depth|board length" → opening count (each opening = 2 boards, doubled header)
+  const hdrAcc  = new Map<string, number>()
+  let wideOpenings = 0   // over 10' — needs an engineered (LVL) header
 
   let totalStuds = 0
   let totalLf    = 0
@@ -4181,25 +4182,21 @@ export function calculateWallAssembly(
   }
 
   // ── Headers sized by opening width (ft + in format) ──────────────────────
-  for (const d of doorsArr) {
-    const door = d as { widthFt?: unknown; widthIn?: unknown; count?: unknown }
-    const wIn  = num(door.widthFt) * 12 + num(door.widthIn)  // total inches
-    const cnt  = num(door.count, 1)
-    if (wIn <= 0) continue
-    const depth = headerDepth(wIn)
-    hdrAcc.set(depth, (hdrAcc.get(depth) ?? 0) + cnt)
+  // Board length covers the opening plus 1-1/2" bearing each side
+  function addHeader(o: unknown) {
+    const op  = o as { widthFt?: unknown; widthIn?: unknown; count?: unknown }
+    const wIn = num(op.widthFt) * 12 + num(op.widthIn)  // total inches
+    const cnt = num(op.count, 1)
+    if (wIn <= 0) return
+    if (wIn > 120) { wideOpenings += cnt; return }   // engineered header instead of 2× lumber
+    const key = `${headerDepth(wIn)}|${nextStdLen((wIn + 3) / 12)}`
+    hdrAcc.set(key, (hdrAcc.get(key) ?? 0) + cnt)
   }
-  for (const w of windowsArr) {
-    const win  = w as { widthFt?: unknown; widthIn?: unknown; count?: unknown }
-    const wIn  = num(win.widthFt) * 12 + num(win.widthIn)    // total inches
-    const cnt  = num(win.count, 1)
-    if (wIn <= 0) continue
-    const depth = headerDepth(wIn)
-    hdrAcc.set(depth, (hdrAcc.get(depth) ?? 0) + cnt)
-  }
+  doorsArr.forEach(addHeader)
+  windowsArr.forEach(addHeader)
   // Fallback: if no dimension data, use legacy count with 2×12 headers
   if (hdrAcc.size === 0 && (totalDoors + totalWindows) > 0) {
-    hdrAcc.set(12, totalDoors + totalWindows)
+    hdrAcc.set('12|10', totalDoors + totalWindows)
   }
 
   // ── Build line items ──────────────────────────────────────────────────────
@@ -4259,15 +4256,17 @@ export function calculateWallAssembly(
     })
   }
 
-  // 4. Headers — one line per beam depth, 2 boards per opening (doubled)
-  for (const [depth, openingCount] of Array.from(hdrAcc.entries()).sort(([a], [b]) => a - b)) {
+  // 4. Headers — one line per depth and board length, 2 boards per opening (doubled)
+  const hdrKeys = Array.from(hdrAcc.entries())
+    .map(([k, c]) => { const [d, l] = k.split('|').map(Number); return { depth: d, hdrBoardLen: l, openingCount: c } })
+    .sort((a, b) => a.depth - b.depth || a.hdrBoardLen - b.hdrBoardLen)
+  for (const { depth, hdrBoardLen, openingCount } of hdrKeys) {
     if (openingCount <= 0) continue
-    const hdrBoardLen = depth <= 6 ? 8 : 10
     const pn          = hdrName(depth, hdrBoardLen)
     const product     = findProduct(products, pn)
     const boardCount  = openingCount * 2 // doubled header = 2 boards per opening
     items.push({
-      description: product?.name ?? `2×${depth} headers — ${openingCount} opening${openingCount !== 1 ? 's' : ''} (${boardCount} boards)`,
+      description: product?.name ?? `2×${depth}×${hdrBoardLen}' headers — ${openingCount} opening${openingCount !== 1 ? 's' : ''} (${boardCount} boards)`,
       quantity: boardCount,
       unit: 'ea',
       cost: product?.cost ?? (depth * hdrBoardLen * 0.55),
@@ -4276,6 +4275,19 @@ export function calculateWallAssembly(
       category: 'Wall Assembly',
       isLabor: false,
       productId: product?.id,
+    })
+  }
+
+  if (wideOpenings > 0) {
+    items.push({
+      description: `Engineered (LVL) header — ${wideOpenings} opening${wideOpenings !== 1 ? 's' : ''} over 10'; size and price with supplier`,
+      quantity: wideOpenings,
+      unit: 'ea',
+      cost: 0,
+      markup: DEFAULT_MARKUP,
+      tier: 'GOOD',
+      category: 'Wall Assembly',
+      isLabor: false,
     })
   }
 

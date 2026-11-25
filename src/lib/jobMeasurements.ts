@@ -292,6 +292,29 @@ export function deckGeometry(job: JobMeasurements, beamSize = "2x10") {
   return { sections, alongHouse, depth, sqft, stairGap, frontRail, gateLf, railLf, posts, postSpacing, height, risers }
 }
 
+// ── Exterior walls → Wall Assembly ─────────────────────────────────────────
+// When Wall Assembly has no walls of its own (new garage, addition), it frames the walls entered
+// on the Measurements tab for siding; their doors and windows become the framed openings.
+export function exteriorFraming(job: JobMeasurements) {
+  if (job.sidingSource === "hover") return null
+  const walls = job.walls.filter((w) => n(w.width) > 0)
+  if (walls.length === 0) return null
+  const openings = walls.flatMap((w) => w.openings ?? [])
+  const toEntry = (o: (typeof openings)[number]) => ({
+    id: "ext:" + o.id, label: o.label, widthFt: n(o.widthFt), widthIn: n(o.widthIn),
+    heightFt: n(o.heightFt), heightIn: n(o.heightIn), count: n(o.count) || 1,
+  })
+  return {
+    walls: walls.map((w) => ({ id: "ext:" + w.id, label: w.label, length: n(w.width), height: n(w.height) || 8 })),
+    doors: openings.filter((o) => o.type === "door").map((o) => ({ ...toEntry(o), type: "exterior" as const })),
+    windows: openings.filter((o) => o.type === "window").map(toEntry),
+    corners: walls.length >= 3 ? walls.length : 0,   // a closed building has one corner per wall
+  }
+}
+
+const hasOwnWalls = (walls: unknown) =>
+  Array.isArray(walls) && walls.some((w) => n((w as { length?: unknown }).length) > 0)
+
 // Railing runs: no rail on the house side; left, front (less the stair opening and gates) and right as picked
 function deckRailRuns(job: JobMeasurements, g: ReturnType<typeof deckGeometry>): DeckRailRun[] {
   if (g.alongHouse <= 0) return []
@@ -522,6 +545,15 @@ export function deriveForTab(
     }
   }
   if (tab === "Wall Assembly") {
+    const ext = hasOwnWalls(scopeData.walls) ? null : exteriorFraming(job)
+    if (ext) {
+      return {
+        walls: ext.walls,
+        doors: [...ext.doors, ...job.doors],
+        windows: [...ext.windows, ...job.windows],
+        corners: Math.max(ext.corners, job.interiorCorners),
+      }
+    }
     return { doors: job.doors, windows: job.windows, corners: job.interiorCorners }
   }
   if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
@@ -619,7 +651,14 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
       add(floors.length, "room(s)")
       add(Math.round(floors.reduce((s, r) => s + n(r.length) * n(r.width), 0)), "sqft floor")
     } else if (tab === "Wall Assembly") {
-      add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
+      const ext = hasOwnWalls(framing?.walls) ? null : exteriorFraming(job)
+      if (ext) {
+        const lf = ext.walls.reduce((t, w) => t + w.length, 0)
+        add(ext.walls.length, `exterior wall(s) · ${Math.round(lf)} lf (from siding walls)`)
+        add(ext.doors.length + doorCount, "door(s)"); add(ext.windows.length + windowCount, "window(s)"); add(ext.corners, "corner(s)")
+      } else {
+        add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
+      }
     } else if (DECK_TABS.includes(tab)) {
       const g = deckGeometry(job, deckBeamSize)
       const lf = (v: number) => Math.round(v * 10) / 10

@@ -52,6 +52,8 @@ const TRADE_CLEAR_MAP: Record<string, string[]> = {
   "deck framing":                 ["Deck Framing"],
   "deck framing accessories":     ["Deck Framing Accessories"],
   "gutters":                      ["Gutters"],
+  // Garage / addition framing puts truss setting on its own Roof Framing tab
+  "wall assembly":                ["Wall Assembly", "Roof Framing"],
   // Bathroom fixtures build into each fixture's own tab
   "bathroom":                     ["Bathroom", "Toilet", "Toilet Assembly", "Vanity", "Vanity Assembly", "Faucet", "Faucet Assembly", "Sink", "Sink Assembly"],
   "shower":                       ["Shower", "Shower Assembly"],

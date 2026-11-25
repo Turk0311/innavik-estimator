@@ -273,6 +273,34 @@ export function pushCarpentry(
   }
 }
 
+// One labor line per rate: each part (work item × its production rate) is its own line for each
+// crew member. Hours typed for a crew member replace that member's suggested parts with one line.
+export function pushCarpentryParts(
+  items: AssemblyItem[],
+  products: Product[],
+  crew: { name: string; entered: unknown }[],
+  parts: { category: string; note: string; hours: number }[],
+  roundTotalToHrs = 0,   // deck tabs: top the tab's total up to the half day with its own line
+) {
+  for (const member of crew) {
+    if (num(member.entered) > 0) {
+      pushCarpentry(items, products, parts[0]?.category ?? '', 0, [member])
+      continue
+    }
+    let total = 0
+    for (const part of parts) {
+      if (part.hours <= 0) continue
+      const hrs = Math.ceil(part.hours * 2) / 2
+      total += hrs
+      pushCarpentry(items, products, part.category, hrs, [{ name: member.name, entered: 0 }], 0.5, part.note)
+    }
+    const extra = roundTotalToHrs > 0 && total > 0 ? Math.ceil(total / roundTotalToHrs) * roundTotalToHrs - total : 0
+    if (extra > 0) {
+      pushCarpentry(items, products, parts[0].category, extra, [{ name: member.name, entered: 0 }], 0.5, 'round up to half day')
+    }
+  }
+}
+
 /** Like findProduct but ALL keywords must be present (AND semantics). */
 // A gallon of paint — not caulk, tape, kits or spray cans that also say "paint"
 function findPaint(products: Product[]): Product | undefined {
@@ -2963,13 +2991,15 @@ export function calculateDeckAssembly(
 
   // 3. Carpentry labor — Lead Carpenter + Carpenter, suggested from deck area, railing and stairs
   const P = CARPENTRY_PRODUCTION
-  pushCarpentry(items, products, 'Decking',
-    // Stair rail is part of each flight's half day; the railing rate covers deck railing only
-    totalArea / P.deckSqftPerHr + deckRailLf / P.deckRailLfPerHr + stairs * P.deckHrsPerStairFlight,
-    [
-      { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
-      { name: 'Carpenter', entered: measurements.carpenterHours },
-    ], P.deckRoundToHrs)
+  // One line per rate; stair rail is part of each flight's half day
+  pushCarpentryParts(items, products, [
+    { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
+    { name: 'Carpenter', entered: measurements.carpenterHours },
+  ], [
+    { category: 'Decking', note: `deck boards ${Math.round(totalArea)} sqft`, hours: totalArea / P.deckSqftPerHr },
+    { category: 'Decking', note: `railing ${Math.round(deckRailLf)} lf`, hours: deckRailLf / P.deckRailLfPerHr },
+    { category: 'Decking', note: `stairs ${stairs} flight${stairs === 1 ? '' : 's'}`, hours: stairs * P.deckHrsPerStairFlight },
+  ], P.deckRoundToHrs)
 
   // How many pricing tiers are active — one per selected material/product.
   // Railing and stair items repeat once per tier so every priced option is complete.
@@ -3841,13 +3871,14 @@ export function calculateDeckFramingAssembly(
   // Carpentry labor — Lead Carpenter + Carpenter, suggested from frame area (ledger × joist span) and posts
   const frameSqft = (num(measurements.ledgerFt) + num(measurements.ledgerIn) / 12)
     * (num(measurements.joistSpanFt) + num(measurements.joistSpanIn) / 12)
-  pushCarpentry(items, products, 'Deck Framing',
-    frameSqft / CARPENTRY_PRODUCTION.framingSqftPerHr
-      + num(measurements.postCount) * CARPENTRY_PRODUCTION.framingHrsPerPost,
-    [
-      { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
-      { name: 'Carpenter', entered: measurements.carpenterHours },
-    ], CARPENTRY_PRODUCTION.deckRoundToHrs)
+  const postCt = num(measurements.postCount)
+  pushCarpentryParts(items, products, [
+    { name: 'Lead Carpenter', entered: measurements.leadCarpenterHours },
+    { name: 'Carpenter', entered: measurements.carpenterHours },
+  ], [
+    { category: 'Deck Framing', note: `framing ${Math.round(frameSqft)} sqft`, hours: frameSqft / CARPENTRY_PRODUCTION.framingSqftPerHr },
+    { category: 'Deck Framing', note: `posts ${postCt}`, hours: postCt * CARPENTRY_PRODUCTION.framingHrsPerPost },
+  ], CARPENTRY_PRODUCTION.deckRoundToHrs)
 
   return items
 }
@@ -4395,14 +4426,23 @@ export function calculateWallAssembly(
         cost: 0,
         markup: DEFAULT_MARKUP,
         tier: 'GOOD',
-        category: 'Wall Assembly',
+        category: 'Roof Framing',
         isLabor: false,
       })
     }
+    // Each trade on its own tab: wall framing here, truss setting on Roof Framing
+    const days = (h: number) => `${h / 8} day${h === 8 ? '' : 's'}`
     const wallHrs = halfDays(wallRunLf / P.exteriorWallLfPerHr)
-    const trussHrs = trusses > 0 ? halfDays(trusses * P.hrsPerTruss) : 0
-    pushCarpentry(items, products, 'Wall Assembly', wallHrs + trussHrs, interiorCrew(measurements), 0.5,
-      trussHrs > 0 ? `walls ${wallHrs / 8} day${wallHrs === 8 ? '' : 's'} + trusses ${trussHrs / 8} day${trussHrs === 8 ? '' : 's'}` : 'walls')
+    pushCarpentryParts(items, products, interiorCrew(measurements), [
+      { category: 'Wall Assembly', note: `wall framing ${days(wallHrs)}`, hours: wallHrs },
+    ])
+    if (trusses > 0) {
+      // Hours typed on Wall Assembly cover the walls only; truss setting stays suggested
+      const trussHrs = halfDays(trusses * P.hrsPerTruss)
+      pushCarpentryParts(items, products, interiorCrew({}), [
+        { category: 'Roof Framing', note: `truss setting ${days(trussHrs)}`, hours: trussHrs },
+      ])
+    }
   } else {
     pushCarpentry(items, products, 'Wall Assembly', totalLf / CARPENTRY_PRODUCTION.wallLfPerHr,
       interiorCrew(measurements))
@@ -4758,7 +4798,13 @@ export function calculateInteriorDoorsAssembly(
   const solid = String(measurements.doorCore ?? 'hc') === 'sc'
   const core = solid ? 'sc' : 'hc'
   const product = products.find((p) => new RegExp(`\\binterior ${core} door`, 'i').test(p.name))
-  return [{
+  // Setting the doors — the interior carpentry crew at 2 hrs per door each (Trim leaves this out
+  // when Interior Doors is on the job)
+  const labor: AssemblyItem[] = []
+  pushCarpentryParts(labor, products, interiorCrew(measurements), [
+    { category: 'Interior Doors', note: `setting ${count} door${count === 1 ? '' : 's'}`, hours: count * CARPENTRY_PRODUCTION.trimHrsPerDoor },
+  ])
+  return [...labor, {
     description: product?.name ?? (solid ? 'Interior SC Doors' : 'Interior HC Doors'),
     quantity: count,
     unit: 'ea',
@@ -5484,10 +5530,15 @@ export function calculateInteriorTrimAssembly(
 
   // 8. Labor — the interior carpentry crew, suggested from installed trim lf and doors set
   //    → Interior Trim Accessories
-  const doorCount = doors.reduce((s, d) => s + num(d.count, 1), 0)
-  pushCarpentry(items, products, 'Interior Trim Accessories',
-    totalInstalledLf / CARPENTRY_PRODUCTION.trimLfPerHr + doorCount * CARPENTRY_PRODUCTION.trimHrsPerDoor,
-    interiorCrew(measurements))
+  // Door setting is its own line
+  const doorCount = doors.filter((d) => String(d.type ?? 'interior') !== 'exterior').reduce((s, d) => s + num(d.count, 1), 0)
+  pushCarpentryParts(items, products, interiorCrew(measurements), [
+    { category: 'Interior Trim Accessories', note: `trim ${Math.round(totalInstalledLf)} lf`, hours: totalInstalledLf / CARPENTRY_PRODUCTION.trimLfPerHr },
+    // With Interior Doors on the job, that build carries door setting instead
+    { category: 'Interior Trim Accessories',
+      note: `setting ${doorCount} door${doorCount === 1 ? '' : 's'}`,
+      hours: measurements.doorsOnJob === true ? 0 : doorCount * CARPENTRY_PRODUCTION.trimHrsPerDoor },
+  ])
 
   return items
 }

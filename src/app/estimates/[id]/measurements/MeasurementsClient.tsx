@@ -267,7 +267,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
     switch (tradeType) {
       case "Roofing": return roofingData as unknown as Record<string, unknown>;
       case "Siding": return sidingData as unknown as Record<string, unknown>;
-      case "Interior Trim": return interiorTrimData as unknown as Record<string, unknown>;
+      case "Interior Trim": return { ...interiorTrimData, doorsOnJob: normalizedTabs.includes("Interior Doors") || normalizedTabs.includes("Interior Door Assembly") } as unknown as Record<string, unknown>;
       case "Plumbing/Electrical": return peData as unknown as Record<string, unknown>;
       case "Painting": return paintingData as unknown as Record<string, unknown>;
       case "Demo": return demoData as unknown as Record<string, unknown>;
@@ -320,7 +320,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       case "Drywall Accessories": return drywallAccData as unknown as Record<string, unknown>;
       case "Exterior Trim": return exteriorTrimData as unknown as Record<string, unknown>;
       // Accessories tabs share measurements with their parent trim tab
-      case "Interior Trim Accessories": return interiorTrimData as unknown as Record<string, unknown>;
+      case "Interior Trim Accessories": return { ...interiorTrimData, doorsOnJob: normalizedTabs.includes("Interior Doors") || normalizedTabs.includes("Interior Door Assembly") } as unknown as Record<string, unknown>;
       case "Exterior Trim Accessories": return exteriorTrimData as unknown as Record<string, unknown>;
       default: return {};
     }

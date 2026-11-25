@@ -216,6 +216,8 @@ export const CARPENTRY_PRODUCTION = {
   framingSqftPerHr: 20,     // deck frame (ledger × joist span)
   framingHrsPerPost: 0.5,
   wallLfPerHr: 3.25,        // interior wall framing
+  exteriorWallLfPerHr: 6.5, // garage / addition walls, gables included (104 lf garage = 2 days)
+  hrsPerTruss: 1,           // setting roof trusses (16-truss garage = 2 days)
   trimLfPerHr: 9,           // base, casing, crown installed
   trimHrsPerDoor: 2,        // set each door
   insulationSqftPerHr: 52.5, // wall batts
@@ -249,6 +251,7 @@ export function pushCarpentry(
   suggestedHours: number,
   crew: { name: string; entered: unknown }[],
   roundToHrs = 0.5,   // deck scopes round up to the half day (4 hrs)
+  note = '',          // what the hours cover, shown on the line
 ) {
   const suggested = Math.ceil(Math.max(0, suggestedHours) / roundToHrs) * roundToHrs
   for (const member of crew) {
@@ -257,7 +260,7 @@ export function pushCarpentry(
     if (hours <= 0) continue
     const product = findCrewRate(products, member.name)
     items.push({
-      description: entered > 0 ? member.name : `${member.name} (suggested hrs)`,
+      description: `${member.name}${note ? ` — ${note}` : ''}${entered > 0 ? '' : ' (suggested hrs)'}`,
       quantity: hours,
       unit: 'hr',
       cost: product?.cost ?? CARPENTER_FALLBACK_RATES[member.name] ?? 60,
@@ -4370,9 +4373,40 @@ export function calculateWallAssembly(
     productId: nailProduct?.id,
   })
 
-  // 6. Labor — the interior carpentry crew, suggested from total wall lf
-  pushCarpentry(items, products, 'Wall Assembly', totalLf / CARPENTRY_PRODUCTION.wallLfPerHr,
-    interiorCrew(measurements))
+  // 6. Labor — the interior carpentry crew
+  if (measurements.exterior === true) {
+    // New garage / addition: wall framing in half days, plus roof trusses at 24" o.c. along the ridge
+    const P = CARPENTRY_PRODUCTION
+    const halfDays = (h: number) => Math.ceil(h / 4) * 4
+    const wallRunLf = (Array.isArray(wallsArr) ? wallsArr : [])
+      .reduce((t: number, w: unknown) => t + num((w as { length?: unknown }).length), 0)
+    const gableWidths = gablesArr.map((g) => num((g as { width?: unknown }).width)).filter((w) => w > 0)
+    let trusses = 0
+    if (gableWidths.length > 0) {
+      // Ridge runs along the walls that aren't gable ends
+      const lengths = (Array.isArray(wallsArr) ? wallsArr : []).map((w) => num((w as { length?: unknown }).length))
+      const sides = lengths.filter((l) => !gableWidths.some((gw) => Math.abs(gw - l) < 0.5))
+      const ridgeLf = Math.max(0, ...(sides.length > 0 ? sides : lengths))
+      trusses = ridgeLf > 0 ? Math.ceil((ridgeLf * 12) / 24) + 1 : 0
+      items.push({
+        description: `Roof trusses — ${trusses} @ 24" o.c., ${Math.max(...gableWidths)}' span; size and price with supplier`,
+        quantity: trusses,
+        unit: 'ea',
+        cost: 0,
+        markup: DEFAULT_MARKUP,
+        tier: 'GOOD',
+        category: 'Wall Assembly',
+        isLabor: false,
+      })
+    }
+    const wallHrs = halfDays(wallRunLf / P.exteriorWallLfPerHr)
+    const trussHrs = trusses > 0 ? halfDays(trusses * P.hrsPerTruss) : 0
+    pushCarpentry(items, products, 'Wall Assembly', wallHrs + trussHrs, interiorCrew(measurements), 0.5,
+      trussHrs > 0 ? `walls ${wallHrs / 8} day${wallHrs === 8 ? '' : 's'} + trusses ${trussHrs / 8} day${trussHrs === 8 ? '' : 's'}` : 'walls')
+  } else {
+    pushCarpentry(items, products, 'Wall Assembly', totalLf / CARPENTRY_PRODUCTION.wallLfPerHr,
+      interiorCrew(measurements))
+  }
 
   // 7. Red Head Anchors — 1 every 24" of bottom plate LF
   if (measurements.redHeadAnchors) {

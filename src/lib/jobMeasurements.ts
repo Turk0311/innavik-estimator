@@ -312,8 +312,12 @@ export function exteriorFraming(job: JobMeasurements) {
   }
 }
 
+// Walls copied in from the Measurements tab carry an "ext:" id; saving them doesn't make them Wall Assembly's own
 const hasOwnWalls = (walls: unknown) =>
-  Array.isArray(walls) && walls.some((w) => n((w as { length?: unknown }).length) > 0)
+  Array.isArray(walls) && walls.some((w) => {
+    const wall = w as { id?: unknown; length?: unknown }
+    return n(wall.length) > 0 && !String(wall.id ?? "").startsWith("ext:")
+  })
 
 // Railing runs: no rail on the house side; left, front (less the stair opening and gates) and right as picked
 function deckRailRuns(job: JobMeasurements, g: ReturnType<typeof deckGeometry>): DeckRailRun[] {
@@ -547,11 +551,25 @@ export function deriveForTab(
   if (tab === "Wall Assembly") {
     const ext = hasOwnWalls(scopeData.walls) ? null : exteriorFraming(job)
     if (ext) {
+      // A door or window entered both as a siding opening and in the Doors & Windows list is framed once
+      type Sized = { widthFt: number; widthIn: number; heightFt: number; heightIn: number; count?: number }
+      const notAlreadyFramed = <T extends Sized>(extList: Sized[], list: T[]): T[] => {
+        const left = extList.flatMap((o) => Array.from({ length: n(o.count) || 1 }, () => o))
+        return list.filter((o) => {
+          const i = left.findIndex((e) => n(e.widthFt) === n(o.widthFt) && n(e.widthIn) === n(o.widthIn)
+            && n(e.heightFt) === n(o.heightFt) && n(e.heightIn) === n(o.heightIn))
+          if (i < 0) return true
+          left.splice(i, 1)
+          return false
+        })
+      }
       return {
         walls: ext.walls,
-        doors: [...ext.doors, ...job.doors],
-        windows: [...ext.windows, ...job.windows],
+        doors: [...ext.doors, ...notAlreadyFramed(ext.doors, job.doors)],
+        windows: [...ext.windows, ...notAlreadyFramed(ext.windows, job.windows)],
         corners: Math.max(ext.corners, job.interiorCorners),
+        gables: job.gables,
+        exterior: true,   // adds sheathing (and house wrap when Siding isn't on the job)
       }
     }
     return { doors: job.doors, windows: job.windows, corners: job.interiorCorners }
@@ -654,8 +672,9 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
       const ext = hasOwnWalls(framing?.walls) ? null : exteriorFraming(job)
       if (ext) {
         const lf = ext.walls.reduce((t, w) => t + w.length, 0)
+        const d = deriveForTab("Wall Assembly", job, { walls: framing?.walls }) as { doors?: unknown[]; windows?: unknown[] } | null
         add(ext.walls.length, `exterior wall(s) · ${Math.round(lf)} lf (from siding walls)`)
-        add(ext.doors.length + doorCount, "door(s)"); add(ext.windows.length + windowCount, "window(s)"); add(ext.corners, "corner(s)")
+        add(d?.doors?.length ?? 0, "door(s)"); add(d?.windows?.length ?? 0, "window(s)"); add(ext.corners, "corner(s)")
       } else {
         add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
       }

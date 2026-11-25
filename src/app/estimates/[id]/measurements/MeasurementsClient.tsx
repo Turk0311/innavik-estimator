@@ -307,7 +307,8 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
       // Door Assembly shares the Interior Doors choices
       case "Interior Doors":
       case "Interior Door Assembly": return interiorDoorsData as unknown as Record<string, unknown>;
-      case "Wall Assembly": return wallData as unknown as Record<string, unknown>;
+      // Siding brings its own house wrap, so Wall Assembly skips it when Siding is on the job
+      case "Wall Assembly": return { ...wallData, sidingOnJob: normalizedTabs.includes("Siding") } as unknown as Record<string, unknown>;
       case "Windows/Doors": return windowsDoorData as unknown as Record<string, unknown>;
       case "Flooring": return flooringData as unknown as Record<string, unknown>;
       case "Tile": return tileData as unknown as Record<string, unknown>;

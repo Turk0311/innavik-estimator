@@ -4181,6 +4181,27 @@ export function calculateWallAssembly(
     totalStuds += corners * 2
   }
 
+  // ── Gable ends (exterior framing) ────────────────────────────────────────
+  // Studs at the stud spacing under each rake; their lengths average half the rise, so total
+  // stud footage is cut from boards one size longer than the rise (+15% for cuts). One rake
+  // plate up each slope.
+  const gablesArr = Array.isArray(measurements.gables) ? measurements.gables : []
+  let gableSqft = 0
+  for (const g of gablesArr) {
+    const gab  = g as { width?: unknown; rise?: unknown }
+    const w = num(gab.width), r = num(gab.rise)
+    if (w <= 0 || r <= 0) continue
+    gableSqft += (w * r) / 2
+    const studs     = Math.max(0, Math.ceil((w * 12) / studSpacing) - 1)
+    const boardLen  = nextStdLen(Math.max(8, r))
+    const boards    = Math.ceil((studs * (r / 2) * 1.15) / boardLen)
+    studAcc.set(boardLen, (studAcc.get(boardLen) ?? 0) + boards)
+    totalStuds += studs
+    const rakeLf    = 2 * Math.sqrt((w / 2) ** 2 + r ** 2)
+    tpAcc.set(16, (tpAcc.get(16) ?? 0) + Math.ceil(rakeLf / 16))
+    totalLf += rakeLf
+  }
+
   // ── Headers sized by opening width (ft + in format) ──────────────────────
   // Board length covers the opening plus 1-1/2" bearing each side
   function addHeader(o: unknown) {
@@ -4289,6 +4310,50 @@ export function calculateWallAssembly(
       category: 'Wall Assembly',
       isLabor: false,
     })
+  }
+
+  // ── Exterior skin: sheathing (and house wrap when Siding isn't on the job) ──
+  if (measurements.exterior === true) {
+    const wallSqft = (Array.isArray(wallsArr) ? wallsArr : []).reduce((t: number, w: unknown) => {
+      const ws = w as { length?: unknown; height?: unknown }
+      return t + num(ws.length) * num(ws.height)
+    }, 0)
+    const openingSqft = [...doorsArr, ...windowsArr].reduce((t: number, o: unknown) => {
+      const op = o as { widthFt?: unknown; widthIn?: unknown; heightFt?: unknown; heightIn?: unknown; count?: unknown }
+      return t + (num(op.widthFt) + num(op.widthIn) / 12) * (num(op.heightFt) + num(op.heightIn) / 12) * num(op.count, 1)
+    }, 0)
+    const skinSqft = Math.max(0, wallSqft + gableSqft - openingSqft)
+    if (skinSqft > 0) {
+      const sheathing = products.find((p) => /1\/2"x4'x8' 4 ply plywood sheathing/i.test(p.name))
+        ?? products.find((p) => /1\/2"x4'x8'.*plywood/i.test(p.name) && !/pt|green/i.test(p.name))
+      items.push({
+        description: sheathing?.name ?? `1/2" 4x8 wall sheathing — ${Math.round(skinSqft)} sqft`,
+        quantity: Math.ceil((skinSqft * 1.1) / 32),
+        unit: 'ea',
+        cost: sheathing?.cost ?? 23,
+        markup: DEFAULT_MARKUP,
+        tier: sheathing?.tier ?? 'GOOD',
+        category: 'Wall Assembly',
+        isLabor: false,
+        productId: sheathing?.id,
+      })
+      if (measurements.sidingOnJob !== true) {
+        // Wrap goes over the openings and is cut out after, so openings aren't deducted
+        const wrapSqft = wallSqft + gableSqft
+        const wrap = products.find((p) => /house wrap 9'x150'/i.test(p.name))
+        items.push({
+          description: wrap?.name ?? "House wrap 9'x150'",
+          quantity: Math.ceil((wrapSqft * 1.1) / 1350),
+          unit: 'ea',
+          cost: wrap?.cost ?? 92.5,
+          markup: DEFAULT_MARKUP,
+          tier: wrap?.tier ?? 'GOOD',
+          category: 'Wall Assembly',
+          isLabor: false,
+          productId: wrap?.id,
+        })
+      }
+    }
   }
 
   // 5. Framing nails

@@ -134,6 +134,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         ...(markup      != null && { markup: clampMarkup(existing.category, Number(markup)) }),
         ...(tier        != null && { tier: tier as Tier }),
         ...(pkgsPatch   != null && { packages: String(pkgsPatch) }),
+        // An edited line is the rep's now — re-applying the scope keeps it instead of rebuilding it
+        fromAssembly: false,
       },
     });
   } catch (err) {

@@ -255,11 +255,39 @@ export async function POST(request: Request, context: RouteContext) {
         }
       }
 
+      // Lines the rep edited or added by hand stay, and the build doesn't add a second copy of them.
+      // Match on tab + product + description without numbers, so "railing 40 lf" still matches after
+      // the railing length changes.
+      const lineKey = (category: string, productId: string | null | undefined, description: string) =>
+        [category.toLowerCase(), productId && productId !== "assembly" && productId !== "custom" ? productId : "",
+          description.toLowerCase().replace(/\(suggested hrs\)/g, "").replace(/\d+(?:[.,/]\d+)?/g, " ")
+            .replace(/["'×—–]/g, " ").replace(/\s+/g, " ").trim()].join("|");
+      const kept = await prisma.estimateItem.findMany({
+        where: { estimateId, fromAssembly: false, category: { in: newCategories } },
+        select: { category: true, productId: true, description: true },
+      });
+      // One kept line stands in for one built line (two showers = two Plumbing lines)
+      const keptCount = new Map<string, number>();
+      for (const k of kept) {
+        const key = lineKey(k.category, k.productId, k.description);
+        keptCount.set(key, (keptCount.get(key) ?? 0) + 1);
+      }
+      const toCreate = assemblyItems.filter((i) => {
+        const key = lineKey(i.category, i.productId, i.description);
+        const left = keptCount.get(key) ?? 0;
+        if (left <= 0) return true;
+        keptCount.set(key, left - 1);
+        return false;
+      });
+      if (toCreate.length < assemblyItems.length) {
+        console.log(`[assembly] kept ${assemblyItems.length - toCreate.length} edited / hand-added line(s) for "${tradeType}"`);
+      }
+
       // Build a productId → {sku, supplier} lookup so we can store them on each line item
       const productMeta = new Map(products.map(p => [p.id, { sku: p.sku, supplier: p.supplier }]));
 
       await prisma.estimateItem.createMany({
-        data: assemblyItems.map((item) => {
+        data: toCreate.map((item) => {
           const pid = item.productId ?? "assembly";
           const meta = productMeta.get(pid);
           return {

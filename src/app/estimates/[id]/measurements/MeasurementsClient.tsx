@@ -245,7 +245,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
   // Linked scopes always take their measurements from the Measurements tab
   function getDataForTrade(tradeType: string): Record<string, unknown> {
     const scopeData = getScopeData(tradeType);
-    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job, scopeData, framing) : null;
+    const linked = LINKED_TABS.has(tradeType) ? deriveForTab(tradeType, job, scopeData) : null;
     return linked ? { ...scopeData, ...linked } : scopeData;
   }
 
@@ -854,7 +854,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <InteriorTrimMeasurements
             initialData={interiorTrimData}
             onChange={setInteriorTrimData}
-            linkedValues={deriveForTab("Interior Trim", job, {}, framing) as Partial<InteriorTrimData>}
+            linkedValues={deriveForTab("Interior Trim", job) as Partial<InteriorTrimData>}
           />
         )}
         {activeTab === "Plumbing/Electrical" && (
@@ -864,8 +864,8 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <PaintingMeasurements
             initialData={paintingData}
             onChange={setPaintingData}
-            roomSqft={interiorPaintSqft(job, framing)}
-            linkedValues={deriveForTab("Painting", job, {}, framing) as Partial<PaintingData>}
+            roomSqft={interiorPaintSqft(job)}
+            linkedValues={deriveForTab("Painting", job) as Partial<PaintingData>}
           />
         )}
         {activeTab === "Demo" && (
@@ -909,7 +909,10 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
             initialData={{ ...wallData, doors: job.doors, windows: job.windows, corners: job.interiorCorners }}
             exterior={(() => {
               const d = deriveForTab("Wall Assembly", job, wallData as unknown as Record<string, unknown>) as (Partial<WallAssemblyData> & { exterior?: boolean }) | null;
-              return d?.exterior && d.walls ? { walls: d.walls, doors: d.doors ?? [], windows: d.windows ?? [], corners: d.corners ?? 0 } : undefined;
+              return d?.walls ? {
+                walls: d.walls, doors: d.doors ?? [], windows: d.windows ?? [], corners: d.corners ?? 0,
+                title: d.exterior ? "Exterior Walls" : "Framed Walls",
+              } : undefined;
             })()}
             onChange={setWallData}
             linked
@@ -948,7 +951,7 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <DrywallAccessoriesMeasurements
             initialData={drywallAccData}
             onChange={setDrywallAccData}
-            linkedValues={deriveForTab("Drywall Accessories", job, {}, framing) as Partial<DrywallAccessoriesData>}
+            linkedValues={deriveForTab("Drywall Accessories", job) as Partial<DrywallAccessoriesData>}
           />
         )}
         {activeTab === "Exterior Trim" && (

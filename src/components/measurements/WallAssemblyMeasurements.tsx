@@ -77,8 +77,8 @@ interface Props {
   onChange: (data: WallAssemblyData) => void;
   // Doors, windows and corners come from the Measurements tab
   linked?: boolean;
-  // No walls of its own: frame the Measurements-tab (siding) walls and their openings
-  exterior?: { walls: WallSection[]; doors: WallDoorEntry[]; windows: WallWindowEntry[]; corners: number };
+  // Walls framed from the Measurements tab (Frame ticked, or siding walls on a garage/addition)
+  exterior?: { walls: WallSection[]; doors: WallDoorEntry[]; windows: WallWindowEntry[]; corners: number; title?: string };
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -353,7 +353,7 @@ export default function WallAssemblyMeasurements({ initialData, onChange, linked
 
       {exterior && (
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-2">
-          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Exterior Walls <span className="normal-case font-normal text-slate-500">— from the Measurements tab</span></h3>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{exterior.title ?? "Exterior Walls"} <span className="normal-case font-normal text-slate-500">— from the Measurements tab</span></h3>
           {exterior.walls.map((w) => (
             <p key={w.id} className="text-sm text-slate-300">
               {w.label || "Wall"}: <span className="text-white font-medium">{w.length}&apos; × {w.height}&apos;</span>

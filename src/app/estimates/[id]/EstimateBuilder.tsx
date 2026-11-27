@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { withTaxAndDelivery, grossMargin, taxRateFrom, clampMarkup, DEFAULT_TAX_RATE, SETTINGS_TRADE_TYPE } from "@/lib/pricing";
+import { laborTrade } from "@/lib/laborTrade";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1641,7 +1642,14 @@ function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better',
       const materialsCost = pkgItems.filter((i) => !i.isLabor).reduce((s, i) => s + i.cost * i.quantity, 0);
       const laborCost = pkgItems.filter((i) => i.isLabor).reduce((s, i) => s + i.cost * i.quantity, 0);
       const priced = withTaxAndDelivery(materials, labor, taxRate);
-      return { ...pkg, ...priced, gm: grossMargin(priced, materialsCost, laborCost, taxRate), visible };
+      // Labor summed per trade (who does the work), largest first
+      const laborTrades = new Map<string, number>();
+      for (const i of pkgItems.filter((i) => i.isLabor)) {
+        const trade = laborTrade(i.description, i.category);
+        laborTrades.set(trade, (laborTrades.get(trade) ?? 0) + sellPrice(i.cost, effectiveMarkup(i)) * i.quantity);
+      }
+      const laborByTab = Array.from(laborTrades.entries()).sort((a, b) => b[1] - a[1]);
+      return { ...pkg, ...priced, gm: grossMargin(priced, materialsCost, laborCost, taxRate), visible, laborByTab };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, packageLabels, markupOverride, taxRate]);
@@ -1715,6 +1723,16 @@ function SummaryPanel({ items, packageLabels = { good: 'Good', better: 'Better',
                 <span className="text-slate-500">Labor</span>
                 <span className="text-slate-300 tabular-nums">{fmt(pkg.labor)}</span>
               </div>
+              {pkg.laborByTab.length > 1 && (
+                <div className="pl-3 border-l border-slate-700 ml-1 space-y-0.5">
+                  {pkg.laborByTab.map(([tab, amount]) => (
+                    <div key={tab} className="flex justify-between text-[11px]">
+                      <span className="text-slate-500 truncate pr-2">{tab}</span>
+                      <span className="text-slate-400 tabular-nums">{fmt(amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Gross margin — internal only, not on the proposal */}

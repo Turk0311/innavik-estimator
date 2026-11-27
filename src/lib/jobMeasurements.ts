@@ -17,6 +17,24 @@ export interface RoomEntry {
   height: number
   ceiling: boolean  // ceiling is part of the paint and drywall work
   floor: boolean    // room gets new flooring
+  // Which trades take the room's walls (and ceiling); older rooms without these get drywall, paint and base
+  framing?: boolean
+  drywall?: boolean
+  paint?: boolean
+  base?: boolean
+}
+
+// A wall with no room around it (hallway side of a bedroom wall, a new partition).
+// One face per row; each box sends it to that trade.
+export interface WallOnlyEntry {
+  id: string
+  label: string
+  length: number
+  height: number
+  framing: boolean   // framed on Wall Assembly
+  drywall: boolean
+  paint: boolean
+  base: boolean      // baseboard on Interior Trim
 }
 
 export interface JobMeasurements {
@@ -75,6 +93,7 @@ export interface JobMeasurements {
   doorTrimLf: number
   // Interior
   rooms: RoomEntry[]
+  wallsOnly: WallOnlyEntry[]
   doors: WallDoorEntry[]
   windows: WallWindowEntry[]
   interiorCorners: number
@@ -118,7 +137,33 @@ export function newDeckSection(): DeckSection {
 const ROOM_ENTRY_PREFIX = "room:"
 
 export function newRoom(): RoomEntry {
-  return { id: String(Date.now() + Math.random()), label: "", length: 0, width: 0, height: 0, ceiling: false, floor: true }
+  return {
+    id: String(Date.now() + Math.random()), label: "", length: 0, width: 0, height: 0, ceiling: false, floor: true,
+    framing: false, drywall: true, paint: true, base: true,
+  }
+}
+
+export function newWallOnly(): WallOnlyEntry {
+  return { id: String(Date.now() + Math.random()), label: "", length: 0, height: 8, framing: false, drywall: true, paint: true, base: true }
+}
+
+type WallTrade = "drywall" | "paint" | "base"
+
+// Framed walls handed to Wall Assembly carry this id prefix so they are never saved as its own
+const WALL_ONLY_PREFIX = "iw:"
+
+function validWallsOnly(job: JobMeasurements): WallOnlyEntry[] {
+  return (job.wallsOnly ?? []).filter((w) => n(w.length) > 0)
+}
+
+// Rooms and walls-only rows with Frame ticked — a room frames its whole perimeter
+function framedWallsOnly(job: JobMeasurements) {
+  const rooms = (job.rooms ?? []).filter((r) => r.framing === true && n(r.length) > 0 && n(r.width) > 0 && n(r.height) > 0)
+    .map((r) => ({ id: WALL_ONLY_PREFIX + "r-" + r.id, label: r.label, length: roomWallLf(r), height: n(r.height) }))
+  const walls = validWallsOnly(job).filter((w) => w.framing).map((w) => ({
+    id: WALL_ONLY_PREFIX + w.id, label: w.label, length: n(w.length), height: n(w.height) || 8,
+  }))
+  return [...rooms, ...walls]
 }
 
 export const JOB_TRADE_TYPE = "Job"
@@ -146,7 +191,7 @@ export function emptyJob(): JobMeasurements {
     cornerBoardsLf: 0, insideCornersLf: 0, starterLf: 0, fasciaLf: 0, friezeLf: 0,
     soffitLf: 0, soffitArea: 0, jChannelLf: 0, finishTrimLf: 0,
     bandBoardLf: 0, windowTrimLf: 0, doorTrimLf: 0,
-    rooms: [newRoom()], doors: [], windows: [], interiorCorners: 0,
+    rooms: [newRoom()], wallsOnly: [], doors: [], windows: [], interiorCorners: 0,
     deckSections: [newDeckSection()], deckHeightFt: 0, deckHeightIn: 0,
     deckRailLeft: true, deckRailFront: true, deckRailRight: true, deckGates: 0,
     deckStairs: 0, deckStairRisers: 7, deckStairWidthFt: 3, deckStairWidthIn: 0,
@@ -316,7 +361,8 @@ export function exteriorFraming(job: JobMeasurements) {
 const hasOwnWalls = (walls: unknown) =>
   Array.isArray(walls) && walls.some((w) => {
     const wall = w as { id?: unknown; length?: unknown }
-    return n(wall.length) > 0 && !String(wall.id ?? "").startsWith("ext:")
+    const id = String(wall.id ?? "")
+    return n(wall.length) > 0 && !id.startsWith("ext:") && !id.startsWith(WALL_ONLY_PREFIX)
   })
 
 // Railing runs: no rail on the house side; left, front (less the stair opening and gates) and right as picked
@@ -377,11 +423,16 @@ interface InteriorSurfaces {
 }
 
 // Wall Assembly sections win when entered; rooms fill in whatever Wall Assembly doesn't have
-export function interiorSurfaces(job: JobMeasurements, framing?: FramingSource): InteriorSurfaces {
-  const rooms = validRooms(job)
-  const framedWalls = (framing?.walls ?? []).filter((w) => n(w.length) > 0)
+export function interiorSurfaces(job: JobMeasurements, framing?: FramingSource, trade: WallTrade = "drywall"): InteriorSurfaces {
+  const rooms = validRooms(job).filter((r) => r[trade] !== false)
+  // Walls Wall Assembly got from the walls-only list are counted from that list below, not twice
+  const framedWalls = (framing?.walls ?? [])
+    .filter((w) => n(w.length) > 0 && !String(w.id ?? "").startsWith(WALL_ONLY_PREFIX))
   const framedCeilings = (framing?.ceilingSections ?? []).filter((c) => n(c.length) > 0 && n(c.width) > 0)
-  const walls = framedWalls.length > 0
+  const wallsOnly = validWallsOnly(job).filter((w) => w[trade] !== false).map((w) => ({
+    id: ROOM_ENTRY_PREFIX + "w-" + w.id, label: w.label, length: n(w.length), height: n(w.height) || 8,
+  }))
+  const roomWalls = framedWalls.length > 0
     ? framedWalls.map((w, i) => ({
         id: ROOM_ENTRY_PREFIX + "wa-" + (w.id ?? i), label: w.label ?? "",
         length: n(w.length), height: n(w.height) || 8,
@@ -389,6 +440,7 @@ export function interiorSurfaces(job: JobMeasurements, framing?: FramingSource):
     : rooms.filter((r) => n(r.height) > 0).map((r) => ({
         id: ROOM_ENTRY_PREFIX + r.id, label: r.label, length: roomWallLf(r), height: n(r.height),
       }))
+  const walls = [...roomWalls, ...wallsOnly]
   const ceilings = framedCeilings.length > 0
     ? framedCeilings.map((c, i) => ({
         id: ROOM_ENTRY_PREFIX + "wa-" + (c.id ?? i), label: c.label ?? "", length: n(c.length), width: n(c.width),
@@ -411,7 +463,7 @@ function surfaceTotals(surf: InteriorSurfaces) {
 }
 
 export function interiorPaintSqft(job: JobMeasurements, framing?: FramingSource): number {
-  const t = surfaceTotals(interiorSurfaces(job, framing))
+  const t = surfaceTotals(interiorSurfaces(job, framing, "paint"))
   return Math.round(t.wallSqft + t.ceilingSqft)
 }
 
@@ -501,9 +553,10 @@ export function deriveForTab(
   }
 
   const rooms = validRooms(job)
-  const surf = interiorSurfaces(job, framing)
+  // Each trade sees only the walls-only rows ticked for it; baseboard follows the Base box
+  const surf = interiorSurfaces(job, framing, tab === "Painting" ? "paint" : "drywall")
   const totals = surfaceTotals(surf)
-  const perimeter = totals.wallLf
+  const perimeter = surfaceTotals(interiorSurfaces(job, framing, "base")).wallLf
   if (tab === "Painting") {
     const doorWidths = job.doors.reduce((s, d) => s + feet(d.widthFt, d.widthIn) * n(d.count), 0)
     const baseLf = Math.max(0, Math.round(perimeter - doorWidths))
@@ -572,7 +625,14 @@ export function deriveForTab(
         exterior: true,   // adds sheathing (and house wrap when Siding isn't on the job)
       }
     }
-    return { doors: job.doors, windows: job.windows, corners: job.interiorCorners }
+    // Walls-only entries marked "Framing" are framed alongside Wall Assembly's own walls
+    const framedOnly = framedWallsOnly(job)
+    const own = (Array.isArray(scopeData.walls) ? (scopeData.walls as { id?: unknown }[]) : [])
+      .filter((w) => !String(w.id ?? "").startsWith(WALL_ONLY_PREFIX) && !String(w.id ?? "").startsWith("ext:"))
+    return {
+      ...(framedOnly.length > 0 && { walls: [...own, ...framedOnly] }),
+      doors: job.doors, windows: job.windows, corners: job.interiorCorners,
+    }
   }
   if (tab === "Interior Doors" || tab === "Interior Door Assembly") {
     return { doors: job.doors }
@@ -650,11 +710,13 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
     const rooms = validRooms(job)
     const doorCount = job.doors.reduce((s, d) => s + n(d.count), 0)
     const windowCount = job.windows.reduce((s, w) => s + n(w.count), 0)
-    const surf = interiorSurfaces(job, framing)
+    const trade: WallTrade = tab === "Painting" ? "paint" : tab.startsWith("Interior Trim") ? "base" : "drywall"
+    const surf = interiorSurfaces(job, framing, trade)
     const t = surfaceTotals(surf)
     const from = (src: string) => (src === "wall assembly" ? " (Wall Assembly)" : "")
     if (tab === "Painting" || tab === "Drywall") {
       if (surf.wallSource === "rooms" || surf.ceilingSource === "rooms") add(rooms.length, "room(s)")
+      add(validWallsOnly(job).filter((w) => w[trade] !== false).length, "wall(s) only")
       add(Math.round(t.wallSqft), "sqft walls" + from(surf.wallSource))
       add(Math.round(t.ceilingSqft), "sqft ceilings" + from(surf.ceilingSource))
       if (tab === "Painting") { add(doorCount, "door(s)"); add(windowCount, "window(s)") }
@@ -676,6 +738,8 @@ export function summaryForTab(tab: string, job: JobMeasurements, framing?: Frami
         add(ext.walls.length, `exterior wall(s) · ${Math.round(lf)} lf (from siding walls)`)
         add(d?.doors?.length ?? 0, "door(s)"); add(d?.windows?.length ?? 0, "window(s)"); add(ext.corners, "corner(s)")
       } else {
+        const framedOnly = framedWallsOnly(job)
+        add(framedOnly.length, `wall(s) to frame · ${Math.round(framedOnly.reduce((t, w) => t + w.length, 0))} lf (Measurements tab)`)
         add(doorCount, "door(s)"); add(windowCount, "window(s)"); add(job.interiorCorners, "corner(s)")
       }
     } else if (DECK_TABS.includes(tab)) {

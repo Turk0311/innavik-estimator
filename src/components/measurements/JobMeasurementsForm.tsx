@@ -1,6 +1,6 @@
 "use client";
 
-import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, newRoom, roofArea, roomWallLf, newDeckSection, deckGeometry, DECK_GATE_WIDTH_FT } from "@/lib/jobMeasurements";
+import { type JobMeasurements, type JobSection, type PlaneEntry, type RoomEntry, type WallOnlyEntry, newRoom, newWallOnly, roofArea, roomWallLf, newDeckSection, deckGeometry, DECK_GATE_WIDTH_FT } from "@/lib/jobMeasurements";
 import type { DeckSection } from "@/components/measurements/DeckMeasurements";
 import { GUARD_REQUIRED_ABOVE_IN, GUARD_SHOP_ABOVE_IN, HANDRAIL_AT_RISERS, MAX_RISER_IN } from "@/lib/deckCode";
 import { type ShowerEntry, newShower, showerAreas } from "@/lib/bathShared";
@@ -90,6 +90,8 @@ function RemoveBtn({ title, onClick }: { title: string; onClick: () => void }) {
   );
 }
 
+const WALL_TRADES = [["framing", "Frame"], ["drywall", "Drywall"], ["paint", "Paint"], ["base", "Base"]] as const;
+
 export default function JobMeasurementsForm({ value: job, onChange, sections, showFloor = false }: Props) {
   function set<K extends keyof JobMeasurements>(key: K, v: JobMeasurements[K]) {
     onChange({ ...job, [key]: v });
@@ -100,6 +102,9 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
 
   function setRoom(id: string, patch: Partial<RoomEntry>) {
     set("rooms", job.rooms.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function setWallOnly(id: string, patch: Partial<WallOnlyEntry>) {
+    set("wallsOnly", (job.wallsOnly ?? []).map((w) => (w.id === id ? { ...w, ...patch } : w)));
   }
   function setDoor(id: string, patch: Partial<WallDoorEntry>) {
     set("doors", job.doors.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -323,6 +328,9 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
                   <th className="pb-2 pr-3 font-medium">Height (ft)</th>
                   <th className="pb-2 pr-3 font-medium text-center">Ceiling</th>
                   {showFloor && <th className="pb-2 pr-3 font-medium text-center">Floor</th>}
+                  {WALL_TRADES.map(([, label]) => (
+                    <th key={label} className="pb-2 pr-3 font-medium text-center">{label}</th>
+                  ))}
                   <th className="pb-2 pr-3 font-medium text-right">Walls (sqf)</th>
                   <th className="pb-2 w-8"></th>
                 </tr>
@@ -372,6 +380,15 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
                         />
                       </td>
                     )}
+                    {WALL_TRADES.map(([key, label]) => (
+                      <td key={key} className="py-2 pr-3 text-center">
+                        <input type="checkbox"
+                          checked={key === "framing" ? room.framing === true : room[key] !== false}
+                          onChange={(e) => setRoom(room.id, { [key]: e.target.checked })}
+                          aria-label={`${label} in ${room.label || `room ${idx + 1}`}`}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500" />
+                      </td>
+                    ))}
                     <td className="py-2 pr-3 text-right text-slate-300 font-medium tabular-nums">
                       {roomWallLf(room) * room.height > 0 ? (roomWallLf(room) * room.height).toLocaleString() : "—"}
                     </td>
@@ -395,7 +412,73 @@ export default function JobMeasurementsForm({ value: job, onChange, sections, sh
           <button onClick={() => set("rooms", [...job.rooms, newRoom()])} className="text-xs text-blue-400 hover:text-blue-300">
             + Add Room
           </button>
-          {showFloor && <p className="text-[11px] text-slate-500">Leave Height blank for a floor-only room.</p>}
+          <p className="text-[11px] text-slate-500">
+            Leave Height blank for no walls — a checked Ceiling still counts (hallways, open areas).
+            Drywall and Paint cover the walls and ceiling; Frame frames the whole room perimeter on Wall Assembly.
+          </p>
+
+          <h3 className={`${headCls} pt-2`}>Walls Only</h3>
+          {(job.wallsOnly ?? []).length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500 border-b border-slate-700">
+                    <th className="pb-2 pr-3 font-medium">Wall</th>
+                    <th className="pb-2 pr-3 font-medium">Length (ft)</th>
+                    <th className="pb-2 pr-3 font-medium">Height (ft)</th>
+                    {WALL_TRADES.map(([, label]) => (
+                      <th key={label} className="pb-2 pr-3 font-medium text-center">{label}</th>
+                    ))}
+                    <th className="pb-2 pr-3 font-medium text-right">Sqf</th>
+                    <th className="pb-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                  {(job.wallsOnly ?? []).map((wall, idx) => (
+                    <tr key={wall.id}>
+                      <td className="py-2 pr-3">
+                        <input type="text" value={wall.label} placeholder={`Wall ${idx + 1}`} className={inputCls}
+                          onChange={(e) => setWallOnly(wall.id, { label: e.target.value })} />
+                      </td>
+                      {(["length", "height"] as const).map((field) => (
+                        <td key={field} className="py-2 pr-3">
+                          <input type="number" min="0" step="0.5" placeholder="0" className={inputCls}
+                            value={wall[field] === 0 ? "" : wall[field]}
+                            onChange={(e) => setWallOnly(wall.id, { [field]: Number(e.target.value) || 0 })} />
+                        </td>
+                      ))}
+                      {WALL_TRADES.map(([key, label]) => (
+                        <td key={key} className="py-2 pr-3 text-center">
+                          <input type="checkbox"
+                            checked={key === "framing" ? wall.framing === true : wall[key] !== false}
+                            onChange={(e) => setWallOnly(wall.id, { [key]: e.target.checked })}
+                            aria-label={`${label} on ${wall.label || `wall ${idx + 1}`}`}
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500" />
+                        </td>
+                      ))}
+                      <td className="py-2 pr-3 text-right text-slate-300 font-medium tabular-nums">
+                        {wall.length * wall.height > 0 ? Math.round(wall.length * wall.height).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-2">
+                        <button onClick={() => set("wallsOnly", (job.wallsOnly ?? []).filter((w) => w.id !== wall.id))}
+                          className="text-slate-600 hover:text-red-400 p-1" title="Remove wall">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <button onClick={() => set("wallsOnly", [...(job.wallsOnly ?? []), newWallOnly()])} className="text-xs text-blue-400 hover:text-blue-300">
+            + Add Wall
+          </button>
+          <p className="text-[11px] text-slate-500">
+            Each row is one face — add a second row for the other side. Frame sends it to Wall Assembly; Base adds baseboard.
+          </p>
         </div>
       )}
 

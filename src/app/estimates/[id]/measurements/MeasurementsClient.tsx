@@ -908,8 +908,8 @@ export default function MeasurementsClient({ estimateId, scopes, savedMeasuremen
           <WallAssemblyMeasurements
             initialData={{ ...wallData, doors: job.doors, windows: job.windows, corners: job.interiorCorners }}
             exterior={(() => {
-              const d = deriveForTab("Wall Assembly", job, wallData as unknown as Record<string, unknown>) as Partial<WallAssemblyData> | null;
-              return d?.walls ? { walls: d.walls, doors: d.doors ?? [], windows: d.windows ?? [], corners: d.corners ?? 0 } : undefined;
+              const d = deriveForTab("Wall Assembly", job, wallData as unknown as Record<string, unknown>) as (Partial<WallAssemblyData> & { exterior?: boolean }) | null;
+              return d?.exterior && d.walls ? { walls: d.walls, doors: d.doors ?? [], windows: d.windows ?? [], corners: d.corners ?? 0 } : undefined;
             })()}
             onChange={setWallData}
             linked
